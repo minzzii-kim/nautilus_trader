@@ -19,9 +19,72 @@ use std::{
 };
 
 use nautilus_model::data::bar::Bar;
+use strum::Display;
 
-use super::fuzzy_enums::{CandleBodySize, CandleDirection, CandleSize, CandleWickSize};
 use crate::{indicator::Indicator, momentum::bb::fast_std_with_mean};
+
+#[repr(C)]
+#[derive(Debug, Display, Clone, PartialEq, Eq, Copy)]
+#[strum(ascii_case_insensitive)]
+#[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
+#[cfg_attr(
+    feature = "python",
+    pyo3::pyclass(module = "nautilus_trader.core.nautilus_pyo3.indicators")
+)]
+pub enum CandleBodySize {
+    None = 0,
+    Small = 1,
+    Medium = 2,
+    Large = 3,
+    Trend = 4,
+}
+
+#[repr(C)]
+#[derive(Debug, Display, Clone, PartialEq, Eq, Copy)]
+#[strum(ascii_case_insensitive)]
+#[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
+#[cfg_attr(
+    feature = "python",
+    pyo3::pyclass(module = "nautilus_trader.core.nautilus_pyo3.indicators")
+)]
+pub enum CandleDirection {
+    Bull = 1,
+    None = 0,
+    Bear = -1,
+}
+
+#[repr(C)]
+#[derive(Debug, Display, Clone, PartialEq, Eq, Copy)]
+#[strum(ascii_case_insensitive)]
+#[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
+#[cfg_attr(
+    feature = "python",
+    pyo3::pyclass(module = "nautilus_trader.core.nautilus_pyo3.indicators")
+)]
+pub enum CandleSize {
+    None = 0,
+    VerySmall = 1,
+    Small = 2,
+    Medium = 3,
+    Large = 4,
+    VeryLarge = 5,
+    ExtremelyLarge = 6,
+}
+
+#[repr(C)]
+#[derive(Debug, Display, Clone, PartialEq, Eq, Copy)]
+#[strum(ascii_case_insensitive)]
+#[strum(serialize_all = "SCREAMING_SNAKE_CASE")]
+#[cfg_attr(
+    feature = "python",
+    pyo3::pyclass(module = "nautilus_trader.core.nautilus_pyo3.indicators")
+)]
+pub enum CandleWickSize {
+    None = 0,
+    Small = 1,
+    Medium = 2,
+    Large = 3,
+}
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
@@ -48,20 +111,21 @@ impl Display for FuzzyCandle {
 }
 
 impl FuzzyCandle {
+    #[must_use]
     pub const fn new(
         direction: CandleDirection,
         size: CandleSize,
         body_size: CandleBodySize,
         upper_wick_size: CandleWickSize,
         lower_wick_size: CandleWickSize,
-    ) -> anyhow::Result<Self> {
-        Ok(Self {
+    ) -> Self {
+        Self {
             direction,
             size,
             body_size,
             upper_wick_size,
             lower_wick_size,
-        })
+        }
     }
 }
 
@@ -149,14 +213,15 @@ impl FuzzyCandlesticks {
     /// - Threshold2: f64 : The membership function x threshold2 (> threshold1).
     /// - Threshold3: f64 : The membership function x threshold3 (> threshold2).
     /// - Threshold4: f64 : The membership function x threshold4 (> threshold3).
+    #[must_use]
     pub fn new(
         period: usize,
         threshold1: f64,
         threshold2: f64,
         threshold3: f64,
         threshold4: f64,
-    ) -> anyhow::Result<Self> {
-        Ok(Self {
+    ) -> Self {
+        Self {
             period,
             threshold1,
             threshold2,
@@ -169,8 +234,7 @@ impl FuzzyCandlesticks {
                 CandleBodySize::None,
                 CandleWickSize::None,
                 CandleWickSize::None,
-            )
-            .unwrap(),
+            ),
             has_inputs: false,
             initialized: false,
             lengths: VecDeque::with_capacity(period),
@@ -181,7 +245,7 @@ impl FuzzyCandlesticks {
             last_high: 0.0,
             last_low: 0.0,
             last_close: 0.0,
-        })
+        }
     }
 
     pub fn update_raw(&mut self, open: f64, high: f64, low: f64, close: f64) {
@@ -245,8 +309,7 @@ impl FuzzyCandlesticks {
                 mean_lower_wick_percent,
                 sd_lower_wick_percent,
             ),
-        )
-        .unwrap();
+        );
 
         self.vector = vec![
             self.value.direction as i32,
@@ -268,8 +331,7 @@ impl FuzzyCandlesticks {
             CandleBodySize::None,
             CandleWickSize::None,
             CandleWickSize::None,
-        )
-        .unwrap();
+        );
         self.vector = Vec::new();
         self.last_open = 0.0;
         self.last_high = 0.0;
@@ -406,10 +468,8 @@ impl FuzzyCandlesticks {
 mod tests {
     use rstest::rstest;
 
-    use crate::{
-        stubs::fuzzy_candlesticks_10,
-        volatility::{fuzzy_candlesticks::FuzzyCandlesticks, fuzzy_enums::*},
-    };
+    use super::*;
+    use crate::{stubs::fuzzy_candlesticks_10, volatility::fuzzy::FuzzyCandlesticks};
 
     #[rstest]
     fn test_psl_initialized(fuzzy_candlesticks_10: FuzzyCandlesticks) {

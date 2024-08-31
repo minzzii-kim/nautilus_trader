@@ -13,12 +13,17 @@ crate-type = ["rlib", "staticlib"]
 [dependencies]
 nautilus-common = { path = "../common" }
 nautilus-core = { path = "../core" }
+nautilus-data = { path = "../data" }
 nautilus-execution = { path = "../execution" }
-nautilus-model = { path = "../model" }
+nautilus-model = { path = "../model" , features = ["stubs"]}
 anyhow = { workspace = true }
+chrono = { workspace = true }
 log = { workspace = true }
 pyo3 = { workspace = true, optional = true }
 ustr = { workspace = true }
+rust_decimal = { workspace = true }
+rand = { workspace = true }
+rand_chacha = { version = "0.3.1"}
 
 [dev-dependencies]
 tempfile = { workspace = true }

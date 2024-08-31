@@ -15,13 +15,14 @@
 
 use std::{
     collections::HashMap,
-    env, fmt,
+    env,
+    fmt::Display,
     str::FromStr,
     sync::{
         atomic::Ordering,
         mpsc::{channel, Receiver, SendError, Sender},
     },
-    thread::{self, JoinHandle},
+    thread::JoinHandle,
 };
 
 use indexmap::IndexMap;
@@ -181,8 +182,8 @@ pub struct LogLine {
     pub message: String,
 }
 
-impl fmt::Display for LogLine {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
+impl Display for LogLine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "[{}] {}: {}", self.level, self.component, self.message)
     }
 }
@@ -293,7 +294,9 @@ impl Log for Logger {
     }
 
     fn flush(&self) {
-        self.tx.send(LogEvent::Flush).unwrap();
+        if let Err(e) = self.tx.send(LogEvent::Flush) {
+            eprintln!("Error sending flush log event: {e}");
+        }
     }
 }
 
@@ -333,7 +336,7 @@ impl Logger {
         match set_boxed_logger(Box::new(logger)) {
             Ok(()) => {
                 handle = Some(
-                    thread::Builder::new()
+                    std::thread::Builder::new()
                         .name("logging".to_string())
                         .spawn(move || {
                             Self::handle_messages(
@@ -347,7 +350,7 @@ impl Logger {
                         .expect("Error spawning `logging` thread"),
                 );
 
-                let max_level = log::LevelFilter::Debug;
+                let max_level = log::LevelFilter::Trace;
                 set_max_level(max_level);
                 if print_config {
                     println!("Logger set as `log` implementation with max level {max_level}");
@@ -457,6 +460,9 @@ pub fn log(level: LogLevel, color: LogColor, component: Ustr, message: &str) {
 
     match level {
         LogLevel::Off => {}
+        LogLevel::Trace => {
+            log::trace!(component = component.to_value(), color = color; "{}", message);
+        }
         LogLevel::Debug => {
             log::debug!(component = component.to_value(), color = color; "{}", message);
         }
@@ -512,7 +518,7 @@ impl Drop for LogGuard {
 mod tests {
     use std::{collections::HashMap, time::Duration};
 
-    use log::{info, LevelFilter};
+    use log::LevelFilter;
     use nautilus_core::uuid::UUID4;
     use nautilus_model::identifiers::TraderId;
     use rstest::*;
@@ -601,7 +607,7 @@ mod tests {
         logging_clock_set_static_mode();
         logging_clock_set_static_time(1_650_000_000_000_000);
 
-        info!(
+        log::info!(
             component = "RiskEngine";
             "This is a test."
         );
@@ -662,7 +668,7 @@ mod tests {
         logging_clock_set_static_mode();
         logging_clock_set_static_time(1_650_000_000_000_000);
 
-        info!(
+        log::info!(
             component = "RiskEngine";
             "This is a test."
         );
@@ -718,7 +724,7 @@ mod tests {
         logging_clock_set_static_mode();
         logging_clock_set_static_time(1_650_000_000_000_000);
 
-        info!(
+        log::info!(
             component = "RiskEngine";
             "This is a test."
         );

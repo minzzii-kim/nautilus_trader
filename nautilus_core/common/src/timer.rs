@@ -18,7 +18,7 @@
 use std::{
     cmp::Ordering,
     ffi::c_char,
-    fmt::{Display, Formatter},
+    fmt::Display,
     num::NonZeroU64,
     sync::{
         atomic::{self, AtomicBool, AtomicU64},
@@ -27,8 +27,11 @@ use std::{
 };
 
 use nautilus_core::{
-    correctness::check_valid_string, datetime::floor_to_nearest_microsecond, nanos::UnixNanos,
-    time::get_atomic_clock_realtime, uuid::UUID4,
+    correctness::{check_valid_string, FAILED},
+    datetime::floor_to_nearest_microsecond,
+    nanos::UnixNanos,
+    time::get_atomic_clock_realtime,
+    uuid::UUID4,
 };
 #[cfg(feature = "python")]
 use pyo3::{types::PyCapsule, IntoPy, PyObject, Python};
@@ -36,7 +39,6 @@ use tokio::{
     sync::oneshot,
     time::{Duration, Instant},
 };
-use tracing::{debug, error, trace};
 use ustr::Ustr;
 
 use crate::{handlers::EventHandler, runtime::get_runtime};
@@ -75,7 +77,7 @@ impl TimeEvent {
 }
 
 impl Display for TimeEvent {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
             "TimeEvent(name={}, event_id={}, ts_event={}, ts_init={})",
@@ -133,24 +135,25 @@ pub struct TestTimer {
 
 impl TestTimer {
     /// Creates a new [`TestTimer`] instance.
+    #[must_use]
     pub fn new(
         name: &str,
         interval_ns: u64,
         start_time_ns: UnixNanos,
         stop_time_ns: Option<UnixNanos>,
-    ) -> anyhow::Result<Self> {
-        check_valid_string(name, stringify!(name))?;
+    ) -> Self {
+        check_valid_string(name, stringify!(name)).expect(FAILED);
         // SAFETY: Guaranteed to be non-zero
         let interval_ns = NonZeroU64::new(std::cmp::max(interval_ns, 1)).unwrap();
 
-        Ok(Self {
+        Self {
             name: Ustr::from(name),
             interval_ns,
             start_time_ns,
             stop_time_ns,
             next_time_ns: start_time_ns + interval_ns.get(),
             is_expired: false,
-        })
+        }
     }
 
     /// Returns the next time in UNIX nanoseconds when the timer will fire.
@@ -236,19 +239,20 @@ pub struct LiveTimer {
 
 impl LiveTimer {
     /// Creates a new [`LiveTimer`] instance.
+    #[must_use]
     pub fn new(
         name: &str,
         interval_ns: u64,
         start_time_ns: UnixNanos,
         stop_time_ns: Option<UnixNanos>,
         callback: EventHandler,
-    ) -> anyhow::Result<Self> {
-        check_valid_string(name, stringify!(name))?;
+    ) -> Self {
+        check_valid_string(name, stringify!(name)).expect(FAILED);
         // SAFETY: Guaranteed to be non-zero
         let interval_ns = NonZeroU64::new(std::cmp::max(interval_ns, 1)).unwrap();
 
-        debug!("Creating timer '{}'", name);
-        Ok(Self {
+        log::debug!("Creating timer '{}'", name);
+        Self {
             name: Ustr::from(name),
             interval_ns,
             start_time_ns,
@@ -257,7 +261,7 @@ impl LiveTimer {
             is_expired: Arc::new(AtomicBool::new(false)),
             callback,
             canceler: None,
-        })
+        }
     }
 
     /// Returns the next time in UNIX nanoseconds when the timer will fire.
@@ -285,7 +289,7 @@ impl LiveTimer {
         // Floor the next time to the nearest microsecond which is within the timers accuracy
         let mut next_time_ns = UnixNanos::from(floor_to_nearest_microsecond(next_time_ns));
 
-        // Setup oneshot channel for cancelling timer task
+        // Setup oneshot channel for canceling timer task
         let (cancel_tx, mut cancel_rx) = oneshot::channel();
         self.canceler = Some(cancel_tx);
 
@@ -325,7 +329,7 @@ impl LiveTimer {
                         }
                     },
                     _ = (&mut cancel_rx) => {
-                        trace!("Received timer cancel");
+                        tracing::trace!("Received timer cancel");
                         break; // Timer canceled
                     },
                 }
@@ -339,7 +343,7 @@ impl LiveTimer {
 
     /// Cancels the timer (the timer will not generate a final event).
     pub fn cancel(&mut self) -> anyhow::Result<()> {
-        debug!("Cancel timer '{}'", self.name);
+        log::debug!("Cancel timer '{}'", self.name);
         if !self.is_expired.load(atomic::Ordering::SeqCst) {
             if let Some(sender) = self.canceler.take() {
                 // Send cancellation signal
@@ -366,7 +370,7 @@ fn call_python_with_time_event(
 
         match handler.callback.call1(py, (capsule,)) {
             Ok(_) => {}
-            Err(e) => error!("Error on callback: {:?}", e),
+            Err(e) => tracing::error!("Error on callback: {:?}", e),
         };
     });
 }
@@ -404,7 +408,7 @@ mod tests {
 
     #[rstest]
     fn test_test_timer_pop_event() {
-        let mut timer = TestTimer::new("test_timer", 1, UnixNanos::from(1), None).unwrap();
+        let mut timer = TestTimer::new("test_timer", 1, UnixNanos::from(1), None);
 
         assert!(timer.next().is_some());
         assert!(timer.next().is_some());
@@ -414,7 +418,7 @@ mod tests {
 
     #[rstest]
     fn test_test_timer_advance_within_next_time_ns() {
-        let mut timer = TestTimer::new("test_timer", 5, UnixNanos::default(), None).unwrap();
+        let mut timer = TestTimer::new("test_timer", 5, UnixNanos::default(), None);
         let _: Vec<TimeEvent> = timer.advance(UnixNanos::from(1)).collect();
         let _: Vec<TimeEvent> = timer.advance(UnixNanos::from(2)).collect();
         let _: Vec<TimeEvent> = timer.advance(UnixNanos::from(3)).collect();
@@ -425,7 +429,7 @@ mod tests {
 
     #[rstest]
     fn test_test_timer_advance_up_to_next_time_ns() {
-        let mut timer = TestTimer::new("test_timer", 1, UnixNanos::default(), None).unwrap();
+        let mut timer = TestTimer::new("test_timer", 1, UnixNanos::default(), None);
         assert_eq!(timer.advance(UnixNanos::from(1)).count(), 1);
         assert!(!timer.is_expired);
     }
@@ -437,8 +441,7 @@ mod tests {
             1,
             UnixNanos::default(),
             Some(UnixNanos::from(2)),
-        )
-        .unwrap();
+        );
         assert_eq!(timer.advance(UnixNanos::from(2)).count(), 2);
         assert!(timer.is_expired);
     }
@@ -450,8 +453,7 @@ mod tests {
             1,
             UnixNanos::default(),
             Some(UnixNanos::from(5)),
-        )
-        .unwrap();
+        );
         assert_eq!(timer.advance(UnixNanos::from(5)).count(), 5);
         assert!(timer.is_expired);
     }
@@ -463,8 +465,7 @@ mod tests {
             1,
             UnixNanos::default(),
             Some(UnixNanos::from(5)),
-        )
-        .unwrap();
+        );
         assert_eq!(timer.advance(UnixNanos::from(10)).count(), 5);
         assert!(timer.is_expired);
     }
@@ -482,8 +483,7 @@ mod tests {
         let clock = get_atomic_clock_realtime();
         let start_time = clock.get_time_ns();
         let interval_ns = 100 * NANOSECONDS_IN_MILLISECOND;
-        let mut timer =
-            LiveTimer::new("TEST_TIMER", interval_ns, start_time, None, handler).unwrap();
+        let mut timer = LiveTimer::new("TEST_TIMER", interval_ns, start_time, None, handler);
         let next_time_ns = timer.next_time_ns();
         timer.start();
 
@@ -515,8 +515,7 @@ mod tests {
             start_time,
             Some(stop_time),
             handler,
-        )
-        .unwrap();
+        );
         let next_time_ns = timer.next_time_ns();
         timer.start();
 
@@ -547,8 +546,7 @@ mod tests {
             start_time,
             Some(stop_time),
             handler,
-        )
-        .unwrap();
+        );
         timer.start();
 
         wait_until(|| timer.is_expired(), Duration::from_secs(2));

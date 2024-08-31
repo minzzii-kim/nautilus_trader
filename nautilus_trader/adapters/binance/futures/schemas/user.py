@@ -19,13 +19,13 @@ import msgspec
 
 from nautilus_trader.adapters.binance.common.enums import BinanceEnumParser
 from nautilus_trader.adapters.binance.common.enums import BinanceExecutionType
+from nautilus_trader.adapters.binance.common.enums import BinanceFuturesPositionSide
 from nautilus_trader.adapters.binance.common.enums import BinanceOrderSide
 from nautilus_trader.adapters.binance.common.enums import BinanceOrderStatus
 from nautilus_trader.adapters.binance.common.enums import BinanceOrderType
 from nautilus_trader.adapters.binance.common.enums import BinanceTimeInForce
 from nautilus_trader.adapters.binance.common.execution import BinanceCommonExecutionClient
 from nautilus_trader.adapters.binance.futures.enums import BinanceFuturesEventType
-from nautilus_trader.adapters.binance.futures.enums import BinanceFuturesPositionSide
 from nautilus_trader.adapters.binance.futures.enums import BinanceFuturesPositionUpdateReason
 from nautilus_trader.adapters.binance.futures.enums import BinanceFuturesWorkingType
 from nautilus_trader.core.datetime import millis_to_nanos
@@ -279,18 +279,10 @@ class BinanceFuturesOrderData(msgspec.Struct, kw_only=True, frozen=True):
         ts_event = millis_to_nanos(self.T)
         venue_order_id = VenueOrderId(str(self.i))
         instrument_id = exec_client._get_cached_instrument_id(self.s)
-        strategy_id = exec_client._cache.strategy_id_for_order(client_order_id)
 
-        instrument = exec_client._instrument_provider.find(instrument_id=instrument_id)
-        if instrument is None:
-            raise ValueError(f"Cannot handle trade: instrument {instrument_id} not found")
-
-        price_precision = instrument.price_precision
-        size_precision = instrument.size_precision
-
-        order = exec_client._cache.order(client_order_id)
-        if not order:
-            exec_client._log.error(f"Cannot find order {client_order_id!r}")
+        strategy_id = None
+        if client_order_id:
+            strategy_id = exec_client._cache.strategy_id_for_order(client_order_id)
 
         if strategy_id is None:
             report = self.parse_to_order_status_report(
@@ -303,7 +295,21 @@ class BinanceFuturesOrderData(msgspec.Struct, kw_only=True, frozen=True):
                 enum_parser=exec_client._enum_parser,
             )
             exec_client._send_order_status_report(report)
-        elif self.x == BinanceExecutionType.NEW:
+            return
+
+        instrument = exec_client._instrument_provider.find(instrument_id=instrument_id)
+        if instrument is None:
+            raise ValueError(f"Cannot handle trade: instrument {instrument_id} not found")
+
+        price_precision = instrument.price_precision
+        size_precision = instrument.size_precision
+
+        order = exec_client._cache.order(client_order_id)
+        if not order:
+            exec_client._log.error(f"Cannot find order {client_order_id!r}")
+            return
+
+        if self.x == BinanceExecutionType.NEW:
             if order.order_type == OrderType.TRAILING_STOP_MARKET and order.is_open:
                 return  # Already accepted: this is an update
 

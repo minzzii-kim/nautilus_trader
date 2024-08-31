@@ -137,11 +137,11 @@ impl DecodeFromRecordBatch for Bar {
 
         let result: Result<Vec<Self>, EncodingError> = (0..record_batch.num_rows())
             .map(|i| {
-                let open = Price::from_raw(open_values.value(i), price_precision).unwrap();
-                let high = Price::from_raw(high_values.value(i), price_precision).unwrap();
-                let low = Price::from_raw(low_values.value(i), price_precision).unwrap();
-                let close = Price::from_raw(close_values.value(i), price_precision).unwrap();
-                let volume = Quantity::from_raw(volume_values.value(i), size_precision).unwrap();
+                let open = Price::from_raw(open_values.value(i), price_precision);
+                let high = Price::from_raw(high_values.value(i), price_precision);
+                let low = Price::from_raw(low_values.value(i), price_precision);
+                let close = Price::from_raw(close_values.value(i), price_precision);
+                let volume = Quantity::from_raw(volume_values.value(i), size_precision);
                 let ts_event = ts_event_values.value(i).into();
                 let ts_init = ts_init_values.value(i).into();
 
@@ -230,7 +230,8 @@ mod tests {
             Quantity::from(1100),
             1.into(),
             3.into(),
-        );
+        )
+        .unwrap();
         let bar2 = Bar::new(
             bar_type,
             Price::from("100.00"),
@@ -240,7 +241,8 @@ mod tests {
             Quantity::from(1110),
             2.into(),
             4.into(),
-        );
+        )
+        .unwrap();
 
         let data = vec![bar1, bar2];
         let record_batch = Bar::encode_batch(&metadata, &data).unwrap();

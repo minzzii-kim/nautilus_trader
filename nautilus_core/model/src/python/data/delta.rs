@@ -67,12 +67,12 @@ impl OrderBookDelta {
             let price_py: &PyAny = order_pyobject.getattr("price")?;
             let price_raw: i64 = price_py.getattr("raw")?.extract()?;
             let price_prec: u8 = price_py.getattr("precision")?.extract()?;
-            let price = Price::from_raw(price_raw, price_prec).map_err(to_pyvalue_err)?;
+            let price = Price::from_raw(price_raw, price_prec);
 
             let size_py: &PyAny = order_pyobject.getattr("size")?;
             let size_raw: u64 = size_py.getattr("raw")?.extract()?;
             let size_prec: u8 = size_py.getattr("precision")?.extract()?;
-            let size = Quantity::from_raw(size_raw, size_prec).map_err(to_pyvalue_err)?;
+            let size = Quantity::from_raw(size_raw, size_prec);
 
             let order_id: OrderId = order_pyobject.getattr("order_id")?.extract()?;
             BookOrder {
@@ -188,46 +188,6 @@ impl OrderBookDelta {
         format!("{}:{}", PY_MODULE_MODEL, stringify!(OrderBookDelta))
     }
 
-    /// Creates a `PyCapsule` containing a raw pointer to a `Data::Delta` object.
-    ///
-    /// This function takes the current object (assumed to be of a type that can be represented as
-    /// `Data::Delta`), and encapsulates a raw pointer to it within a `PyCapsule`.
-    ///
-    /// # Safety
-    ///
-    /// This function is safe as long as the following conditions are met:
-    /// - The `Data::Delta` object pointed to by the capsule must remain valid for the lifetime of the capsule.
-    /// - The consumer of the capsule must ensure proper handling to avoid dereferencing a dangling pointer.
-    ///
-    /// # Panics
-    ///
-    /// The function will panic if the `PyCapsule` creation fails, which can occur if the
-    /// `Data::Delta` object cannot be converted into a raw pointer.
-    ///
-    #[pyo3(name = "as_pycapsule")]
-    fn py_as_pycapsule(&self, py: Python<'_>) -> PyObject {
-        data_to_pycapsule(py, Data::Delta(*self))
-    }
-
-    /// Return a dictionary representation of the object.
-    #[pyo3(name = "as_dict")]
-    fn py_as_dict(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
-        // Serialize object to JSON bytes
-        let json_str = serde_json::to_string(self).map_err(to_pyvalue_err)?;
-        // Parse JSON into a Python dictionary
-        let py_dict: Py<PyDict> = PyModule::import(py, "json")?
-            .call_method("loads", (json_str,), None)?
-            .extract()?;
-        Ok(py_dict)
-    }
-
-    /// Return a new object from the given dictionary representation.
-    #[staticmethod]
-    #[pyo3(name = "from_dict")]
-    fn py_from_dict(py: Python<'_>, values: Py<PyDict>) -> PyResult<Self> {
-        from_dict_pyo3(py, values)
-    }
-
     #[staticmethod]
     #[pyo3(name = "get_metadata")]
     fn py_get_metadata(
@@ -253,16 +213,55 @@ impl OrderBookDelta {
         Ok(py_dict)
     }
 
+    /// Returns a new object from the given dictionary representation.
+    #[staticmethod]
+    #[pyo3(name = "from_dict")]
+    fn py_from_dict(py: Python<'_>, values: Py<PyDict>) -> PyResult<Self> {
+        from_dict_pyo3(py, values)
+    }
+
     #[staticmethod]
     #[pyo3(name = "from_json")]
     fn py_from_json(data: Vec<u8>) -> PyResult<Self> {
-        Self::from_json_bytes(data).map_err(to_pyvalue_err)
+        Self::from_json_bytes(&data).map_err(to_pyvalue_err)
     }
 
     #[staticmethod]
     #[pyo3(name = "from_msgpack")]
     fn py_from_msgpack(data: Vec<u8>) -> PyResult<Self> {
-        Self::from_msgpack_bytes(data).map_err(to_pyvalue_err)
+        Self::from_msgpack_bytes(&data).map_err(to_pyvalue_err)
+    }
+
+    /// Creates a `PyCapsule` containing a raw pointer to a `Data::Delta` object.
+    ///
+    /// This function takes the current object (assumed to be of a type that can be represented as
+    /// `Data::Delta`), and encapsulates a raw pointer to it within a `PyCapsule`.
+    ///
+    /// # Safety
+    ///
+    /// This function is safe as long as the following conditions are met:
+    /// - The `Data::Delta` object pointed to by the capsule must remain valid for the lifetime of the capsule.
+    /// - The consumer of the capsule must ensure proper handling to avoid dereferencing a dangling pointer.
+    ///
+    /// # Panics
+    ///
+    /// The function will panic if the `PyCapsule` creation fails, which can occur if the
+    /// `Data::Delta` object cannot be converted into a raw pointer.
+    #[pyo3(name = "as_pycapsule")]
+    fn py_as_pycapsule(&self, py: Python<'_>) -> PyObject {
+        data_to_pycapsule(py, Data::Delta(*self))
+    }
+
+    /// Return a dictionary representation of the object.
+    #[pyo3(name = "as_dict")]
+    fn py_as_dict(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        // Serialize object to JSON bytes
+        let json_str = serde_json::to_string(self).map_err(to_pyvalue_err)?;
+        // Parse JSON into a Python dictionary
+        let py_dict: Py<PyDict> = PyModule::import(py, "json")?
+            .call_method("loads", (json_str,), None)?
+            .extract()?;
+        Ok(py_dict)
     }
 
     /// Return JSON encoded bytes representation of the object.

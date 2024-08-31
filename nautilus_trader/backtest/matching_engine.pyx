@@ -39,6 +39,8 @@ from nautilus_trader.core.rust.model cimport AggressorSide
 from nautilus_trader.core.rust.model cimport BookType
 from nautilus_trader.core.rust.model cimport ContingencyType
 from nautilus_trader.core.rust.model cimport LiquiditySide
+from nautilus_trader.core.rust.model cimport MarketStatus
+from nautilus_trader.core.rust.model cimport MarketStatusAction
 from nautilus_trader.core.rust.model cimport OmsType
 from nautilus_trader.core.rust.model cimport OrderSide
 from nautilus_trader.core.rust.model cimport OrderStatus
@@ -76,6 +78,7 @@ from nautilus_trader.model.events.order cimport OrderTriggered
 from nautilus_trader.model.events.order cimport OrderUpdated
 from nautilus_trader.model.functions cimport liquidity_side_to_str
 from nautilus_trader.model.functions cimport order_type_to_str
+from nautilus_trader.model.functions cimport time_in_force_to_str
 from nautilus_trader.model.identifiers cimport AccountId
 from nautilus_trader.model.identifiers cimport ClientOrderId
 from nautilus_trader.model.identifiers cimport InstrumentId
@@ -519,36 +522,37 @@ cdef class OrderMatchingEngine:
                 f"invalid `PriceType`, was {price_type}",  # pragma: no cover
             )
 
-    cpdef void process_status(self, MarketStatus status):
+    cpdef void process_status(self, MarketStatusAction status):
         """
         Process the exchange status.
 
         Parameters
         ----------
-        status : MarketStatus
-            The status to process.
+        status : MarketStatusAction
+            The status action to process.
 
         """
-        if (self.market_status, status) == (MarketStatus.CLOSED, MarketStatus.OPEN):
-            self.market_status = status
-        elif (self.market_status, status) == (MarketStatus.CLOSED, MarketStatus.PRE_OPEN):
+        # # TODO: Reimplement
+        if (self.market_status, status) == (MarketStatus.CLOSED, MarketStatusAction.TRADING):
+            self.market_status = MarketStatus.OPEN
+        elif (self.market_status, status) == (MarketStatus.CLOSED, MarketStatusAction.PRE_OPEN):
             # Nothing to do on pre-market open.
-            self.market_status = status
-        elif (self.market_status, status) == (MarketStatus.PRE_OPEN, MarketStatus.PAUSE):
-            # Opening auction period, run auction match on pre-open auction orderbook
-            self.process_auction_book(self._opening_auction_book)
-            self.market_status = status
-        elif (self.market_status, status) == (MarketStatus.PAUSE, MarketStatus.OPEN):
-            # Normal market open
-            self.market_status = status
-        elif (self.market_status, status) == (MarketStatus.OPEN, MarketStatus.PAUSE):
-            # Closing auction period, run auction match on closing auction orderbook
-            self.process_auction_book(self._closing_auction_book)
-            self.market_status = status
-        elif (self.market_status, status) == (MarketStatus.PAUSE, MarketStatus.CLOSED):
-            # Market closed - nothing to do for now
-            # TODO - should we implement some sort of closing price message here?
-            self.market_status = status
+            self.market_status = MarketStatus.OPEN
+        # elif (self.market_status, status) == (MarketStatus.PRE_OPEN, MarketStatusAction.PAUSE):
+        #     # Opening auction period, run auction match on pre-open auction orderbook
+        #     self.process_auction_book(self._opening_auction_book)
+        #     self.market_status = status
+        # elif (self.market_status, status) == (MarketStatus.PAUSE, MarketStatusAction.OPEN):
+        #     # Normal market open
+        #     self.market_status = status
+        # elif (self.market_status, status) == (MarketStatus.OPEN, MarketStatusAction.PAUSE):
+        #     # Closing auction period, run auction match on closing auction orderbook
+        #     self.process_auction_book(self._closing_auction_book)
+        #     self.market_status = status
+        # elif (self.market_status, status) == (MarketStatus.PAUSE, MarketStatusAction.CLOSED):
+        #     # Market closed - nothing to do for now
+        #     # TODO - should we implement some sort of closing price message here?
+        #     self.market_status = status
 
     cpdef void process_auction_book(self, OrderBook book):
         Condition.not_none(book, "book")
@@ -878,7 +882,12 @@ cdef class OrderMatchingEngine:
     cdef void _process_market_order(self, MarketOrder order):
         # Check AT_THE_OPEN/AT_THE_CLOSE time in force
         if order.time_in_force == TimeInForce.AT_THE_OPEN or order.time_in_force == TimeInForce.AT_THE_CLOSE:
-            self._process_auction_market_order(order)
+            self._log.error(
+                f"Market auction for time in force {time_in_force_to_str(order.time_in_force)} "
+                "is not currently supported",
+            )
+            # TODO: This functionality needs reimplementing
+            # self._process_auction_market_order(order)
             return
 
         # Check market exists

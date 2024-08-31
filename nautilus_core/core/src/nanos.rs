@@ -38,6 +38,11 @@ impl UnixNanos {
     }
 
     #[must_use]
+    pub const fn as_i64(&self) -> i64 {
+        self.0 as i64
+    }
+
+    #[must_use]
     pub const fn as_f64(&self) -> f64 {
         self.0 as f64
     }
@@ -95,7 +100,11 @@ impl From<UnixNanos> for u64 {
 
 impl From<&str> for UnixNanos {
     fn from(value: &str) -> Self {
-        Self(value.parse().unwrap())
+        Self(
+            value
+                .parse()
+                .expect("Value is not a valid u64 string representation"),
+        )
     }
 }
 
@@ -191,12 +200,14 @@ mod tests {
     fn test_new() {
         let nanos = UnixNanos::from(123);
         assert_eq!(nanos.as_u64(), 123);
+        assert_eq!(nanos.as_i64(), 123);
     }
 
     #[rstest]
     fn test_default() {
         let nanos = UnixNanos::default();
         assert_eq!(nanos.as_u64(), 0);
+        assert_eq!(nanos.as_i64(), 0);
     }
 
     #[rstest]

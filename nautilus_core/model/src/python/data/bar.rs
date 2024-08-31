@@ -139,24 +139,24 @@ impl Bar {
         let open_py: &PyAny = obj.getattr("open")?;
         let price_prec: u8 = open_py.getattr("precision")?.extract()?;
         let open_raw: i64 = open_py.getattr("raw")?.extract()?;
-        let open = Price::from_raw(open_raw, price_prec).map_err(to_pyvalue_err)?;
+        let open = Price::from_raw(open_raw, price_prec);
 
         let high_py: &PyAny = obj.getattr("high")?;
         let high_raw: i64 = high_py.getattr("raw")?.extract()?;
-        let high = Price::from_raw(high_raw, price_prec).map_err(to_pyvalue_err)?;
+        let high = Price::from_raw(high_raw, price_prec);
 
         let low_py: &PyAny = obj.getattr("low")?;
         let low_raw: i64 = low_py.getattr("raw")?.extract()?;
-        let low = Price::from_raw(low_raw, price_prec).map_err(to_pyvalue_err)?;
+        let low = Price::from_raw(low_raw, price_prec);
 
         let close_py: &PyAny = obj.getattr("close")?;
         let close_raw: i64 = close_py.getattr("raw")?.extract()?;
-        let close = Price::from_raw(close_raw, price_prec).map_err(to_pyvalue_err)?;
+        let close = Price::from_raw(close_raw, price_prec);
 
         let volume_py: &PyAny = obj.getattr("volume")?;
         let volume_raw: u64 = volume_py.getattr("raw")?.extract()?;
         let volume_prec: u8 = volume_py.getattr("precision")?.extract()?;
-        let volume = Quantity::from_raw(volume_raw, volume_prec).map_err(to_pyvalue_err)?;
+        let volume = Quantity::from_raw(volume_raw, volume_prec);
 
         let ts_event: u64 = obj.getattr("ts_event")?.extract()?;
         let ts_init: u64 = obj.getattr("ts_init")?.extract()?;
@@ -170,7 +170,8 @@ impl Bar {
             volume,
             ts_event.into(),
             ts_init.into(),
-        ))
+        )
+        .unwrap())
     }
 }
 
@@ -187,8 +188,8 @@ impl Bar {
         volume: Quantity,
         ts_event: u64,
         ts_init: u64,
-    ) -> Self {
-        Self::new(
+    ) -> PyResult<Self> {
+        Ok(Self::new(
             bar_type,
             open,
             high,
@@ -198,6 +199,7 @@ impl Bar {
             ts_event.into(),
             ts_init.into(),
         )
+        .unwrap())
     }
 
     fn __richcmp__(&self, other: &Self, op: CompareOp, py: Python<'_>) -> Py<PyAny> {
@@ -276,46 +278,6 @@ impl Bar {
         format!("{}:{}", PY_MODULE_MODEL, stringify!(Bar))
     }
 
-    /// Creates a `PyCapsule` containing a raw pointer to a `Data::Bar` object.
-    ///
-    /// This function takes the current object (assumed to be of a type that can be represented as
-    /// `Data::Bar`), and encapsulates a raw pointer to it within a `PyCapsule`.
-    ///
-    /// # Safety
-    ///
-    /// This function is safe as long as the following conditions are met:
-    /// - The `Data::Delta` object pointed to by the capsule must remain valid for the lifetime of the capsule.
-    /// - The consumer of the capsule must ensure proper handling to avoid dereferencing a dangling pointer.
-    ///
-    /// # Panics
-    ///
-    /// The function will panic if the `PyCapsule` creation fails, which can occur if the
-    /// `Data::Bar` object cannot be converted into a raw pointer.
-    ///
-    #[pyo3(name = "as_pycapsule")]
-    fn py_as_pycapsule(&self, py: Python<'_>) -> PyObject {
-        data_to_pycapsule(py, Data::Bar(*self))
-    }
-
-    /// Return a dictionary representation of the object.
-    #[pyo3(name = "as_dict")]
-    fn py_as_dict(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
-        // Serialize object to JSON bytes
-        let json_str = serde_json::to_string(self).map_err(to_pyvalue_err)?;
-        // Parse JSON into a Python dictionary
-        let py_dict: Py<PyDict> = PyModule::import(py, "json")?
-            .call_method("loads", (json_str,), None)?
-            .extract()?;
-        Ok(py_dict)
-    }
-
-    /// Return a new object from the given dictionary representation.
-    #[staticmethod]
-    #[pyo3(name = "from_dict")]
-    fn py_from_dict(py: Python<'_>, values: Py<PyDict>) -> PyResult<Self> {
-        from_dict_pyo3(py, values)
-    }
-
     #[staticmethod]
     #[pyo3(name = "get_metadata")]
     fn py_get_metadata(
@@ -341,16 +303,55 @@ impl Bar {
         Ok(py_dict)
     }
 
+    /// Returns a new object from the given dictionary representation.
+    #[staticmethod]
+    #[pyo3(name = "from_dict")]
+    fn py_from_dict(py: Python<'_>, values: Py<PyDict>) -> PyResult<Self> {
+        from_dict_pyo3(py, values)
+    }
+
     #[staticmethod]
     #[pyo3(name = "from_json")]
     fn py_from_json(data: Vec<u8>) -> PyResult<Self> {
-        Self::from_json_bytes(data).map_err(to_pyvalue_err)
+        Self::from_json_bytes(&data).map_err(to_pyvalue_err)
     }
 
     #[staticmethod]
     #[pyo3(name = "from_msgpack")]
     fn py_from_msgpack(data: Vec<u8>) -> PyResult<Self> {
-        Self::from_msgpack_bytes(data).map_err(to_pyvalue_err)
+        Self::from_msgpack_bytes(&data).map_err(to_pyvalue_err)
+    }
+
+    /// Creates a `PyCapsule` containing a raw pointer to a `Data::Bar` object.
+    ///
+    /// This function takes the current object (assumed to be of a type that can be represented as
+    /// `Data::Bar`), and encapsulates a raw pointer to it within a `PyCapsule`.
+    ///
+    /// # Safety
+    ///
+    /// This function is safe as long as the following conditions are met:
+    /// - The `Data::Delta` object pointed to by the capsule must remain valid for the lifetime of the capsule.
+    /// - The consumer of the capsule must ensure proper handling to avoid dereferencing a dangling pointer.
+    ///
+    /// # Panics
+    ///
+    /// The function will panic if the `PyCapsule` creation fails, which can occur if the
+    /// `Data::Bar` object cannot be converted into a raw pointer.
+    #[pyo3(name = "as_pycapsule")]
+    fn py_as_pycapsule(&self, py: Python<'_>) -> PyObject {
+        data_to_pycapsule(py, Data::Bar(*self))
+    }
+
+    /// Return a dictionary representation of the object.
+    #[pyo3(name = "as_dict")]
+    fn py_as_dict(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        // Serialize object to JSON bytes
+        let json_str = serde_json::to_string(self).map_err(to_pyvalue_err)?;
+        // Parse JSON into a Python dictionary
+        let py_dict: Py<PyDict> = PyModule::import(py, "json")?
+            .call_method("loads", (json_str,), None)?
+            .extract()?;
+        Ok(py_dict)
     }
 
     /// Return JSON encoded bytes representation of the object.

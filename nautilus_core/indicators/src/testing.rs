@@ -18,8 +18,8 @@
 /// Checks if two floating-point numbers are approximately equal within the
 /// margin of floating-point precision.
 ///
-/// * `a` - The first floating-point number.
-/// * `b` - The second floating-point number.
+/// * `a`: The first floating-point number.
+/// * `b`: The second floating-point number.
 ///
 /// # Returns
 ///
@@ -29,6 +29,8 @@
 /// # Example
 ///
 /// ```
+/// use nautilus_indicators::testing::approx_equal;
+///
 /// let a = 0.1 + 0.2;
 /// let b = 0.3;
 /// assert!(approx_equal(a, b));

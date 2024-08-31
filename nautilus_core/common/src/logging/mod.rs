@@ -25,7 +25,6 @@ use std::{
 use log::LevelFilter;
 use nautilus_core::{time::get_atomic_clock_static, uuid::UUID4};
 use nautilus_model::identifiers::TraderId;
-use tracing::error;
 use tracing_subscriber::EnvFilter;
 use ustr::Ustr;
 
@@ -38,6 +37,15 @@ use crate::enums::LogLevel;
 pub mod headers;
 pub mod logger;
 pub mod writer;
+
+pub const RECV: &str = "<--";
+pub const SENT: &str = "-->";
+pub const CMD: &str = "[CMD]";
+pub const EVT: &str = "[EVT]";
+pub const DOC: &str = "[DOC]";
+pub const RPT: &str = "[RPT]";
+pub const REQ: &str = "[REQ]";
+pub const RES: &str = "[RES]";
 
 static LOGGING_INITIALIZED: AtomicBool = AtomicBool::new(false);
 static LOGGING_BYPASSED: AtomicBool = AtomicBool::new(false);
@@ -98,7 +106,9 @@ pub fn init_tracing() {
         tracing_subscriber::fmt()
             .with_env_filter(EnvFilter::new(v.clone()))
             .try_init()
-            .unwrap_or_else(|e| error!("Cannot set tracing subscriber because of error: {e}"));
+            .unwrap_or_else(|e| {
+                tracing::error!("Cannot set tracing subscriber because of error: {e}");
+            });
         println!("Initialized tracing logs with RUST_LOG={v}");
     }
 }
@@ -129,6 +139,7 @@ pub fn init_logging(
 pub const fn map_log_level_to_filter(log_level: LogLevel) -> LevelFilter {
     match log_level {
         LogLevel::Off => LevelFilter::Off,
+        LogLevel::Trace => LevelFilter::Trace,
         LogLevel::Debug => LevelFilter::Debug,
         LogLevel::Info => LevelFilter::Info,
         LogLevel::Warning => LevelFilter::Warn,

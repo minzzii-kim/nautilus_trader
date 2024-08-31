@@ -22,8 +22,8 @@ use ustr::Ustr;
 
 use crate::{
     enums::{
-        ContingencyType, LiquiditySide, OrderSide, OrderType, TimeInForce, TrailingOffsetType,
-        TriggerType,
+        ContingencyType, LiquiditySide, OrderSide, OrderSideSpecified, OrderType, TimeInForce,
+        TrailingOffsetType, TriggerType,
     },
     events::order::OrderEvent,
     identifiers::{
@@ -111,6 +111,11 @@ impl OrderFilled {
     }
 
     #[must_use]
+    pub fn specified_side(&self) -> OrderSideSpecified {
+        self.order_side.as_specified()
+    }
+
+    #[must_use]
     pub fn is_buy(&self) -> bool {
         self.order_side == OrderSide::Buy
     }
@@ -135,7 +140,7 @@ impl Default for OrderFilled {
             position_id: None,
             order_side: OrderSide::Buy,
             order_type: OrderType::Market,
-            last_qty: Quantity::new(100_000.0, 0).unwrap(),
+            last_qty: Quantity::new(100_000.0, 0),
             last_px: Price::from("1.00000"),
             currency: Currency::USD(),
             commission: None,

@@ -21,7 +21,7 @@ use std::str::FromStr;
 
 use nautilus_core::nanos::UnixNanos;
 use nautilus_model::{
-    enums::{AssetClass, OptionKind},
+    enums::OptionKind,
     identifiers::{InstrumentId, Symbol},
     instruments::{
         any::InstrumentAny, crypto_future::CryptoFuture, crypto_perpetual::CryptoPerpetual,
@@ -34,6 +34,8 @@ use nautilus_model::{
 use rust_decimal::Decimal;
 use sqlx::{postgres::PgRow, FromRow, Row};
 use ustr::Ustr;
+
+use crate::sql::models::enums::AssetClassModel;
 
 pub struct InstrumentAnyModel(pub InstrumentAny);
 pub struct CryptoFutureModel(pub CryptoFuture);
@@ -191,8 +193,7 @@ impl<'r> FromRow<'r, PgRow> for CryptoFutureModel {
             min_price,
             ts_event,
             ts_init,
-        )
-        .unwrap();
+        );
         Ok(CryptoFutureModel(inst))
     }
 }
@@ -293,8 +294,7 @@ impl<'r> FromRow<'r, PgRow> for CryptoPerpetualModel {
             min_price,
             ts_event,
             ts_init,
-        )
-        .unwrap();
+        );
         Ok(CryptoPerpetualModel(inst))
     }
 }
@@ -390,8 +390,7 @@ impl<'r> FromRow<'r, PgRow> for CurrencyPairModel {
             min_price,
             ts_event,
             ts_init,
-        )
-        .unwrap();
+        );
         Ok(CurrencyPairModel(inst))
     }
 }
@@ -470,8 +469,7 @@ impl<'r> FromRow<'r, PgRow> for EquityModel {
             min_price,
             ts_event,
             ts_init,
-        )
-        .unwrap();
+        );
         Ok(EquityModel(inst))
     }
 }
@@ -483,10 +481,10 @@ impl<'r> FromRow<'r, PgRow> for FuturesContractModel {
             .map(|res| InstrumentId::from(res.as_str()))?;
         let raw_symbol = row
             .try_get::<String, _>("raw_symbol")
-            .map(|res| Symbol::new(res.as_str()).unwrap())?;
+            .map(|res| Symbol::new(res.as_str()))?;
         let asset_class = row
-            .try_get::<String, _>("asset_class")
-            .map(|res| AssetClass::from_str(res.as_str()).unwrap())?;
+            .try_get::<AssetClassModel, _>("asset_class")
+            .map(|res| res.0)?;
         let exchange = row
             .try_get::<Option<String>, _>("exchange")
             .map(|res| res.map(|s| Ustr::from(s.as_str())))?;
@@ -562,8 +560,7 @@ impl<'r> FromRow<'r, PgRow> for FuturesContractModel {
             Some(margin_maint),
             ts_event,
             ts_init,
-        )
-        .unwrap();
+        );
         Ok(FuturesContractModel(inst))
     }
 }
@@ -581,10 +578,10 @@ impl<'r> FromRow<'r, PgRow> for OptionsContractModel {
             .map(|res| InstrumentId::from(res.as_str()))?;
         let raw_symbol = row
             .try_get::<String, _>("raw_symbol")
-            .map(|res| Symbol::new(res.as_str()).unwrap())?;
+            .map(|res| Symbol::new(res.as_str()))?;
         let asset_class = row
-            .try_get::<String, _>("asset_class")
-            .map(|res| AssetClass::from_str(res.as_str()).unwrap())?;
+            .try_get::<AssetClassModel, _>("asset_class")
+            .map(|res| res.0)?;
         let exchange = row
             .try_get::<Option<String>, _>("exchange")
             .map(|res| res.map(|s| Ustr::from(s.as_str())))?;
@@ -653,10 +650,10 @@ impl<'r> FromRow<'r, PgRow> for OptionsContractModel {
             exchange,
             underlying,
             option_kind,
-            activation_ns,
-            expiration_ns,
             strike_price,
             currency,
+            activation_ns,
+            expiration_ns,
             price_precision as u8,
             price_increment,
             multiplier,
@@ -669,8 +666,7 @@ impl<'r> FromRow<'r, PgRow> for OptionsContractModel {
             Some(margin_maint),
             ts_event,
             ts_init,
-        )
-        .unwrap();
+        );
         Ok(OptionsContractModel(inst))
     }
 }

@@ -29,6 +29,7 @@ use nautilus_model::{
     data::{
         delta::OrderBookDelta,
         deltas::{OrderBookDeltas, OrderBookDeltas_API},
+        status::InstrumentStatus,
         Data,
     },
     enums::RecordFlag,
@@ -39,10 +40,9 @@ use tokio::{
     sync::mpsc::{self, error::TryRecvError},
     time::{timeout, Duration},
 };
-use tracing::{debug, error, info, trace};
 
 use super::{
-    decode::{decode_imbalance_msg, decode_statistics_msg},
+    decode::{decode_imbalance_msg, decode_statistics_msg, decode_status_msg},
     types::{DatabentoImbalance, DatabentoStatistics},
 };
 use crate::databento::{
@@ -62,6 +62,7 @@ pub enum LiveCommand {
 pub enum LiveMessage {
     Data(Data),
     Instrument(InstrumentAny),
+    Status(InstrumentStatus),
     Imbalance(DatabentoImbalance),
     Statistics(DatabentoStatistics),
     Error(anyhow::Error),
@@ -104,7 +105,7 @@ impl DatabentoFeedHandler {
 
     /// Run the feed handler to begin listening for commands and processing messages.
     pub async fn run(&mut self) -> anyhow::Result<()> {
-        debug!("Running feed handler");
+        tracing::debug!("Running feed handler");
         let clock = get_atomic_clock_realtime();
         let mut symbol_map = PitSymbolMap::new();
         let mut instrument_id_map: HashMap<u32, InstrumentId> = HashMap::new();
@@ -122,7 +123,7 @@ impl DatabentoFeedHandler {
                 .build(),
         )
         .await?;
-        info!("Connected");
+        tracing::info!("Connected");
 
         let mut client = if let Ok(client) = result {
             client
@@ -140,13 +141,13 @@ impl DatabentoFeedHandler {
 
         loop {
             if self.msg_tx.is_closed() {
-                debug!("Message channel was closed: stopping");
+                tracing::debug!("Message channel was closed: stopping");
                 break;
             };
 
             match self.cmd_rx.try_recv() {
                 Ok(cmd) => {
-                    debug!("Received command: {:?}", cmd);
+                    tracing::debug!("Received command: {:?}", cmd);
                     match cmd {
                         LiveCommand::Subscribe(sub) => {
                             if !self.replay & sub.start.is_some() {
@@ -161,13 +162,13 @@ impl DatabentoFeedHandler {
                             };
                             client.start().await.map_err(to_pyruntime_err)?;
                             running = true;
-                            debug!("Started");
+                            tracing::debug!("Started");
                         }
                         LiveCommand::Close => {
                             self.msg_tx.send(LiveMessage::Close).await?;
                             if running {
                                 client.close().await.map_err(to_pyruntime_err)?;
-                                debug!("Closed inner client");
+                                tracing::debug!("Closed inner client");
                             }
                             break;
                         }
@@ -175,7 +176,7 @@ impl DatabentoFeedHandler {
                 }
                 Err(TryRecvError::Empty) => {} // No command yet
                 Err(TryRecvError::Disconnected) => {
-                    debug!("Disconnected");
+                    tracing::debug!("Disconnected");
                     break;
                 }
             }
@@ -214,6 +215,16 @@ impl DatabentoFeedHandler {
             } else if let Some(msg) = record.get::<dbn::InstrumentDefMsg>() {
                 let data = handle_instrument_def_msg(msg, &self.publisher_venue_map, clock)?;
                 self.send_msg(LiveMessage::Instrument(data)).await;
+            } else if let Some(msg) = record.get::<dbn::StatusMsg>() {
+                let data = handle_status_msg(
+                    msg,
+                    &record,
+                    &symbol_map,
+                    &self.publisher_venue_map,
+                    &mut instrument_id_map,
+                    clock,
+                )?;
+                self.send_msg(LiveMessage::Status(data)).await;
             } else if let Some(msg) = record.get::<dbn::ImbalanceMsg>() {
                 let data = handle_imbalance_msg(
                     msg,
@@ -244,7 +255,7 @@ impl DatabentoFeedHandler {
                 ) {
                     Ok(decoded) => decoded,
                     Err(e) => {
-                        error!("Error decoding record: {e}");
+                        tracing::error!("Error decoding record: {e}");
                         continue;
                     }
                 };
@@ -257,7 +268,7 @@ impl DatabentoFeedHandler {
 
                         // TODO: Temporary for debugging
                         deltas_count += 1;
-                        trace!(
+                        tracing::trace!(
                             "Buffering delta: {} {} {:?} flags={}",
                             deltas_count,
                             delta.ts_event,
@@ -302,26 +313,26 @@ impl DatabentoFeedHandler {
         }
 
         self.cmd_rx.close();
-        debug!("Closed command receiver");
+        tracing::debug!("Closed command receiver");
 
         Ok(())
     }
 
     async fn send_msg(&mut self, msg: LiveMessage) {
-        trace!("Sending {msg:?}");
+        tracing::trace!("Sending {msg:?}");
         match self.msg_tx.send(msg).await {
             Ok(()) => {}
-            Err(e) => error!("Error sending message: {e}"),
+            Err(e) => tracing::error!("Error sending message: {e}"),
         }
     }
 }
 
 fn handle_error_msg(msg: &dbn::ErrorMsg) {
-    error!("{msg:?}");
+    tracing::error!("{msg:?}");
 }
 
 fn handle_system_msg(msg: &dbn::SystemMsg) {
-    info!("{msg:?}");
+    tracing::info!("{msg:?}");
 }
 
 fn handle_symbol_mapping_msg(
@@ -384,6 +395,21 @@ fn handle_instrument_def_msg(
     let ts_init = clock.get_time_ns();
 
     decode_instrument_def_msg(msg, instrument_id, ts_init)
+}
+
+fn handle_status_msg(
+    msg: &dbn::StatusMsg,
+    record: &dbn::RecordRef,
+    symbol_map: &PitSymbolMap,
+    publisher_venue_map: &IndexMap<PublisherId, Venue>,
+    instrument_id_map: &mut HashMap<u32, InstrumentId>,
+    clock: &AtomicTime,
+) -> anyhow::Result<InstrumentStatus> {
+    let instrument_id =
+        update_instrument_id_map(record, symbol_map, publisher_venue_map, instrument_id_map);
+    let ts_init = clock.get_time_ns();
+
+    decode_status_msg(msg, instrument_id, ts_init)
 }
 
 fn handle_imbalance_msg(

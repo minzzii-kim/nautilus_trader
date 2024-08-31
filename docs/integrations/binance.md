@@ -11,13 +11,13 @@ The following documentation assumes a trader is setting up for both live market
 data feeds, and trade execution. The full Binance integration consists of an assortment of components,
 which can be used together or separately depending on the users needs.
 
-- `BinanceHttpClient` - Low-level HTTP API connectivity
-- `BinanceWebSocketClient` - Low-level WebSocket API connectivity
-- `BinanceInstrumentProvider` - Instrument parsing and loading functionality
-- `BinanceSpotDataClient`/ `BinanceFuturesDataClient` - A market data feed manager
-- `BinanceSpotExecutionClient`/`BinanceFuturesExecutionClient` - An account management and trade execution gateway
-- `BinanceLiveDataClientFactory` - Factory for Binance data clients (used by the trading node builder)
-- `BinanceLiveExecClientFactory` - Factory for Binance execution clients (used by the trading node builder)
+- `BinanceHttpClient`: Low-level HTTP API connectivity
+- `BinanceWebSocketClient`: Low-level WebSocket API connectivity
+- `BinanceInstrumentProvider`: Instrument parsing and loading functionality
+- `BinanceSpotDataClient`/`BinanceFuturesDataClient`: A market data feed manager
+- `BinanceSpotExecutionClient`/`BinanceFuturesExecutionClient`: An account management and trade execution gateway
+- `BinanceLiveDataClientFactory`: Factory for Binance data clients (used by the trading node builder)
+- `BinanceLiveExecClientFactory`: Factory for Binance execution clients (used by the trading node builder)
 
 :::note
 Most users will simply define a configuration for a live trading node (as below),
@@ -227,6 +227,73 @@ instrument_provider=InstrumentProviderConfig(
     log_warnings=False,
 )
 ```
+
+### Futures Hedge mode
+
+Binance Futures Hedge mode is a position mode where a trader opens positions in both long and short 
+directions to mitigate risk and potentially profit from market volatility.
+
+To use Binance Future Hedge mode, you need to follow the three items below:
+- 1. Before starting the strategy, ensure that hedge mode is configured on Binance.
+- 2. Set the `use_reduce_only` option to `False` in BinanceExecClientConfig (this is `True` by default.)
+    ```python
+    config = TradingNodeConfig(
+        ...,  # Omitted
+        data_clients={
+            "BINANCE": BinanceDataClientConfig(
+                api_key=None,  # 'BINANCE_API_KEY' env var
+                api_secret=None,  # 'BINANCE_API_SECRET' env var
+                account_type=BinanceAccountType.USDT_FUTURE,
+                base_url_http=None,  # Override with custom endpoint
+                base_url_ws=None,  # Override with custom endpoint
+            ),
+        },
+        exec_clients={
+            "BINANCE": BinanceExecClientConfig(
+                api_key=None,  # 'BINANCE_API_KEY' env var
+                api_secret=None,  # 'BINANCE_API_SECRET' env var
+                account_type=BinanceAccountType.USDT_FUTURE,
+                base_url_http=None,  # Override with custom endpoint
+                base_url_ws=None,  # Override with custom endpoint
+                use_reduce_only=False,  # Must be disabled for Hedge mode
+            ),
+        }
+    )
+    ```
+
+- 3. When submitting an order, use a suffix (`LONG` or `SHORT` ) in the `position_id` to indicate the position direction.
+    ```python
+    class EMACrossHedgeMode(Strategy):
+        ...,  # Omitted
+        def buy(self) -> None:
+            """
+            Users simple buy method (example).
+            """
+            order: MarketOrder = self.order_factory.market(
+                instrument_id=self.instrument_id,
+                order_side=OrderSide.BUY,
+                quantity=self.instrument.make_qty(self.trade_size),
+                # time_in_force=TimeInForce.FOK,
+            )
+
+            # LONG suffix is recognized as a long position by Binance adapter.
+            position_id = PositionId(f"{self.instrument_id}-LONG")
+            self.submit_order(order, position_id)
+
+        def sell(self) -> None:
+            """
+            Users simple sell method (example).
+            """
+            order: MarketOrder = self.order_factory.market(
+                instrument_id=self.instrument_id,
+                order_side=OrderSide.SELL,
+                quantity=self.instrument.make_qty(self.trade_size),
+                # time_in_force=TimeInForce.FOK,
+            )
+            # SHORT suffix is recognized as a short position by Binance adapter.
+            position_id = PositionId(f"{self.instrument_id}-SHORT")
+            self.submit_order(order, position_id)
+    ```
 
 ## Order books
 

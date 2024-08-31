@@ -1167,7 +1167,7 @@ cdef class Logger:
         LogColor color = LogColor.NORMAL,
     ):
         """
-        Log the given debug level message.
+        Log the given DEBUG level message.
 
         Parameters
         ----------
@@ -1201,7 +1201,7 @@ cdef class Logger:
         LogColor color = LogColor.NORMAL,
     ):
         """
-        Log the given information level message.
+        Log the given INFO level message.
 
         Parameters
         ----------
@@ -1236,7 +1236,7 @@ cdef class Logger:
         LogColor color = LogColor.YELLOW,
     ):
         """
-        Log the given warning level message.
+        Log the given WARNING level message.
 
         Parameters
         ----------
@@ -1271,7 +1271,7 @@ cdef class Logger:
         LogColor color = LogColor.RED,
     ):
         """
-        Log the given error level message.
+        Log the given ERROR level message.
 
         Parameters
         ----------
@@ -1971,10 +1971,6 @@ cdef class MessageBus:
         The serializer for database operations.
     database : nautilus_pyo3.RedisMessageBusDatabase, optional
         The backing database for the message bus.
-    snapshot_orders : bool, default False
-        If order state snapshots should be published externally.
-    snapshot_positions : bool, default False
-        If position state snapshots should be published externally.
     config : MessageBusConfig, optional
         The configuration for the message bus.
 
@@ -1997,8 +1993,6 @@ cdef class MessageBus:
         str name = None,
         Serializer serializer = None,
         database: nautilus_pyo3.RedisMessageBusDatabase | None = None,
-        bint snapshot_orders: bool = False,
-        bint snapshot_positions: bool = False,
         config: Any | None = None,
     ) -> None:
         # Temporary fix for import error
@@ -2016,8 +2010,6 @@ cdef class MessageBus:
         self.trader_id = trader_id
         self.serializer = serializer
         self.has_backing = database is not None
-        self.snapshot_orders = snapshot_orders
-        self.snapshot_positions = snapshot_positions
 
         self._clock = clock
         self._log = Logger(name)
@@ -2054,6 +2046,7 @@ cdef class MessageBus:
         self._publishable_types = tuple(_EXTERNAL_PUBLISHABLE_TYPES)
         if types_filter is not None:
             self._publishable_types = tuple(o for o in _EXTERNAL_PUBLISHABLE_TYPES if o not in types_filter)
+        self._streaming_types = set()
         self._resolved = False
 
         # Counters
@@ -2169,6 +2162,18 @@ cdef class MessageBus:
 
         return request_id in self._correlation_index
 
+    cpdef bint is_streaming_type(self, type cls):
+        """
+        Return whether the given type has been registered for external message streaming.
+
+        Returns
+        -------
+        bool
+            True if registered, else False.
+
+        """
+        return cls in self._streaming_types
+
     cpdef void dispose(self):
         """
         Dispose of the message bus which will close the internal channel and thread.
@@ -2241,6 +2246,18 @@ cdef class MessageBus:
         del self._endpoints[endpoint]
 
         self._log.debug(f"Removed endpoint '{endpoint}' {handler}")
+
+    cpdef void add_streaming_type(self, type cls):
+        """
+        Register the given type for external->internal message bus streaming.
+
+        Parameters
+        ----------
+        type : cls
+            The type to add for streaming.
+
+        """
+        self._streaming_types.add(cls)
 
     cpdef void send(self, str endpoint, msg: Any):
         """
@@ -2445,7 +2462,7 @@ cdef class MessageBus:
 
         self._log.debug(f"Removed {sub}")
 
-    cpdef void publish(self, str topic, msg: Any):
+    cpdef void publish(self, str topic, msg: Any, bint external_pub = True):
         """
         Publish the given message for the given `topic`.
 
@@ -2458,13 +2475,15 @@ cdef class MessageBus:
             The topic to publish on.
         msg : object
             The message to publish.
+        external_pub : bool, default True
+            If the message should also be published externally.
 
         """
-        self.publish_c(topic, msg)
+        self.publish_c(topic, msg, external_pub)
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
-    cdef void publish_c(self, str topic, msg: Any):
+    cdef void publish_c(self, str topic, msg: Any, bint external_pub = True):
         Condition.not_none(topic, "topic")
         Condition.not_none(msg, "msg")
 
@@ -2486,7 +2505,7 @@ cdef class MessageBus:
 
         # Publish externally (if configured)
         cdef bytes payload_bytes
-        if self._database is not None and self.serializer is not None:
+        if external_pub and self._database is not None and self.serializer is not None:
             if isinstance(msg, self._publishable_types):
                 if isinstance(msg, bytes):
                     payload_bytes = msg

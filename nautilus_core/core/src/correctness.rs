@@ -24,14 +24,23 @@
 //! An [`anyhow::Result`] is returned with a descriptive message when the
 //! condition check fails.
 
-use std::{collections::HashMap, hash::Hash};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Debug,
+    hash::Hash,
+};
 
-const FAILED: &str = "Condition failed:";
+/// A message prefix that can be used with calls to `expect` or other assertion-related functions.
+///
+/// This constant provides a standard message that can be used to indicate a failure condition
+/// when a predicate or condition does not hold true. It is typically used in conjunction with
+/// functions like `expect` to provide a consistent error message.
+pub const FAILED: &str = "Condition failed";
 
 /// Checks the `predicate` is true.
 pub fn check_predicate_true(predicate: bool, fail_msg: &str) -> anyhow::Result<()> {
     if !predicate {
-        anyhow::bail!("{FAILED} {fail_msg}")
+        anyhow::bail!("{fail_msg}")
     }
     Ok(())
 }
@@ -39,7 +48,7 @@ pub fn check_predicate_true(predicate: bool, fail_msg: &str) -> anyhow::Result<(
 /// Checks the `predicate` is false.
 pub fn check_predicate_false(predicate: bool, fail_msg: &str) -> anyhow::Result<()> {
     if predicate {
-        anyhow::bail!("{FAILED} {fail_msg}")
+        anyhow::bail!("{fail_msg}")
     }
     Ok(())
 }
@@ -52,15 +61,26 @@ pub fn check_predicate_false(predicate: bool, fail_msg: &str) -> anyhow::Result<
 /// - If `s` consists solely of whitespace characters.
 /// - If `s` contains one or more non-ASCII characters.
 pub fn check_valid_string(s: &str, param: &str) -> anyhow::Result<()> {
+    // Ensure string is only traversed once
     if s.is_empty() {
-        anyhow::bail!("{FAILED} invalid string for '{param}', was empty")
-    } else if s.chars().all(char::is_whitespace) {
-        anyhow::bail!("{FAILED} invalid string for '{param}', was all whitespace",)
-    } else if !s.is_ascii() {
-        anyhow::bail!("{FAILED} invalid string for '{param}' contained a non-ASCII char, was '{s}'",)
-    } else {
-        Ok(())
+        anyhow::bail!("invalid string for '{param}', was empty");
     }
+
+    let mut has_non_whitespace = false;
+    for c in s.chars() {
+        if !c.is_whitespace() {
+            has_non_whitespace = true;
+        }
+        if !c.is_ascii() {
+            anyhow::bail!("invalid string for '{param}' contained a non-ASCII char, was '{s}'");
+        }
+    }
+
+    if !has_non_whitespace {
+        anyhow::bail!("invalid string for '{param}', was all whitespace");
+    }
+
+    Ok(())
 }
 
 /// Checks the string `s` if Some, contains only ASCII characters and has semantic meaning.
@@ -80,7 +100,22 @@ pub fn check_valid_string_optional(s: Option<&str>, param: &str) -> anyhow::Resu
 /// Checks the string `s` contains the pattern `pat`.
 pub fn check_string_contains(s: &str, pat: &str, param: &str) -> anyhow::Result<()> {
     if !s.contains(pat) {
-        anyhow::bail!("{FAILED} invalid string for '{param}' did not contain '{pat}', was '{s}'")
+        anyhow::bail!("invalid string for '{param}' did not contain '{pat}', was '{s}'")
+    }
+    Ok(())
+}
+
+/// Checks the values are equal.
+pub fn check_equal<T: PartialEq + Debug>(
+    lhs: T,
+    rhs: T,
+    lhs_param: &str,
+    rhs_param: &str,
+) -> anyhow::Result<()> {
+    if lhs != rhs {
+        anyhow::bail!(
+            "'{lhs_param}' value of {lhs:?} was not equal to '{rhs_param}' value of {rhs:?}",
+        );
     }
     Ok(())
 }
@@ -88,9 +123,7 @@ pub fn check_string_contains(s: &str, pat: &str, param: &str) -> anyhow::Result<
 /// Checks the `u8` values are equal.
 pub fn check_equal_u8(lhs: u8, rhs: u8, lhs_param: &str, rhs_param: &str) -> anyhow::Result<()> {
     if lhs != rhs {
-        anyhow::bail!(
-            "{FAILED} '{lhs_param}' u8 of {lhs} was not equal to '{rhs_param}' u8 of {rhs}"
-        )
+        anyhow::bail!("'{lhs_param}' u8 of {lhs} was not equal to '{rhs_param}' u8 of {rhs}")
     }
     Ok(())
 }
@@ -103,9 +136,7 @@ pub fn check_equal_usize(
     rhs_param: &str,
 ) -> anyhow::Result<()> {
     if lhs != rhs {
-        anyhow::bail!(
-            "{FAILED} '{lhs_param}' usize of {lhs} was not equal to '{rhs_param}' usize of {rhs}"
-        )
+        anyhow::bail!("'{lhs_param}' usize of {lhs} was not equal to '{rhs_param}' usize of {rhs}")
     }
     Ok(())
 }
@@ -113,7 +144,7 @@ pub fn check_equal_usize(
 /// Checks the `u64` value is positive (> 0).
 pub fn check_positive_u64(value: u64, param: &str) -> anyhow::Result<()> {
     if value == 0 {
-        anyhow::bail!("{FAILED} invalid u64 for '{param}' not positive, was {value}")
+        anyhow::bail!("invalid u64 for '{param}' not positive, was {value}")
     }
     Ok(())
 }
@@ -121,7 +152,7 @@ pub fn check_positive_u64(value: u64, param: &str) -> anyhow::Result<()> {
 /// Checks the `i64` value is positive (> 0).
 pub fn check_positive_i64(value: i64, param: &str) -> anyhow::Result<()> {
     if value <= 0 {
-        anyhow::bail!("{FAILED} invalid i64 for '{param}' not positive, was {value}")
+        anyhow::bail!("invalid i64 for '{param}' not positive, was {value}")
     }
     Ok(())
 }
@@ -129,10 +160,10 @@ pub fn check_positive_i64(value: i64, param: &str) -> anyhow::Result<()> {
 /// Checks the `f64` value is non-negative (< 0).
 pub fn check_non_negative_f64(value: f64, param: &str) -> anyhow::Result<()> {
     if value.is_nan() || value.is_infinite() {
-        anyhow::bail!("{FAILED} invalid f64 for '{param}', was {value}")
+        anyhow::bail!("invalid f64 for '{param}', was {value}")
     }
     if value < 0.0 {
-        anyhow::bail!("{FAILED} invalid f64 for '{param}' negative, was {value}")
+        anyhow::bail!("invalid f64 for '{param}' negative, was {value}")
     }
     Ok(())
 }
@@ -140,7 +171,7 @@ pub fn check_non_negative_f64(value: f64, param: &str) -> anyhow::Result<()> {
 /// Checks the `u8` value is in range [`l`, `r`] (inclusive).
 pub fn check_in_range_inclusive_u8(value: u8, l: u8, r: u8, param: &str) -> anyhow::Result<()> {
     if value < l || value > r {
-        anyhow::bail!("{FAILED} invalid u8 for '{param}' not in range [{l}, {r}], was {value}")
+        anyhow::bail!("invalid u8 for '{param}' not in range [{l}, {r}], was {value}")
     }
     Ok(())
 }
@@ -148,7 +179,7 @@ pub fn check_in_range_inclusive_u8(value: u8, l: u8, r: u8, param: &str) -> anyh
 /// Checks the `u64` value is range [`l`, `r`] (inclusive).
 pub fn check_in_range_inclusive_u64(value: u64, l: u64, r: u64, param: &str) -> anyhow::Result<()> {
     if value < l || value > r {
-        anyhow::bail!("{FAILED} invalid u64 for '{param}' not in range [{l}, {r}], was {value}")
+        anyhow::bail!("invalid u64 for '{param}' not in range [{l}, {r}], was {value}")
     }
     Ok(())
 }
@@ -156,7 +187,7 @@ pub fn check_in_range_inclusive_u64(value: u64, l: u64, r: u64, param: &str) -> 
 /// Checks the `i64` value is in range [`l`, `r`] (inclusive).
 pub fn check_in_range_inclusive_i64(value: i64, l: i64, r: i64, param: &str) -> anyhow::Result<()> {
     if value < l || value > r {
-        anyhow::bail!("{FAILED} invalid i64 for '{param}' not in range [{l}, {r}], was {value}")
+        anyhow::bail!("invalid i64 for '{param}' not in range [{l}, {r}], was {value}")
     }
     Ok(())
 }
@@ -166,10 +197,10 @@ pub fn check_in_range_inclusive_f64(value: f64, l: f64, r: f64, param: &str) -> 
     const EPSILON: f64 = 1e-15; // Epsilon to account for floating-point precision issues
 
     if value.is_nan() || value.is_infinite() {
-        anyhow::bail!("{FAILED} invalid f64 for '{param}', was {value}")
+        anyhow::bail!("invalid f64 for '{param}', was {value}")
     }
     if value < l - EPSILON || value > r + EPSILON {
-        anyhow::bail!("{FAILED} invalid f64 for '{param}' not in range [{l}, {r}], was {value}")
+        anyhow::bail!("invalid f64 for '{param}' not in range [{l}, {r}], was {value}")
     }
     Ok(())
 }
@@ -182,7 +213,7 @@ pub fn check_in_range_inclusive_usize(
     param: &str,
 ) -> anyhow::Result<()> {
     if value < l || value > r {
-        anyhow::bail!("{FAILED} invalid usize for '{param}' not in range [{l}, {r}], was {value}")
+        anyhow::bail!("invalid usize for '{param}' not in range [{l}, {r}], was {value}")
     }
     Ok(())
 }
@@ -191,7 +222,7 @@ pub fn check_in_range_inclusive_usize(
 pub fn check_slice_empty<T>(slice: &[T], param: &str) -> anyhow::Result<()> {
     if !slice.is_empty() {
         anyhow::bail!(
-            "{FAILED} the '{param}' slice `&[{}]` was not empty",
+            "the '{param}' slice `&[{}]` was not empty",
             std::any::type_name::<T>()
         )
     }
@@ -202,7 +233,7 @@ pub fn check_slice_empty<T>(slice: &[T], param: &str) -> anyhow::Result<()> {
 pub fn check_slice_not_empty<T>(slice: &[T], param: &str) -> anyhow::Result<()> {
     if slice.is_empty() {
         anyhow::bail!(
-            "{FAILED} the '{param}' slice `&[{}]` was empty",
+            "the '{param}' slice `&[{}]` was empty",
             std::any::type_name::<T>()
         )
     }
@@ -213,7 +244,7 @@ pub fn check_slice_not_empty<T>(slice: &[T], param: &str) -> anyhow::Result<()> 
 pub fn check_map_empty<K, V>(map: &HashMap<K, V>, param: &str) -> anyhow::Result<()> {
     if !map.is_empty() {
         anyhow::bail!(
-            "{FAILED} the '{param}' map `&<{}, {}>` was not empty",
+            "the '{param}' map `&<{}, {}>` was not empty",
             std::any::type_name::<K>(),
             std::any::type_name::<V>(),
         )
@@ -225,7 +256,7 @@ pub fn check_map_empty<K, V>(map: &HashMap<K, V>, param: &str) -> anyhow::Result
 pub fn check_map_not_empty<K, V>(map: &HashMap<K, V>, param: &str) -> anyhow::Result<()> {
     if map.is_empty() {
         anyhow::bail!(
-            "{FAILED} the '{param}' map `&<{}, {}>` was empty",
+            "the '{param}' map `&<{}, {}>` was empty",
             std::any::type_name::<K>(),
             std::any::type_name::<V>(),
         )
@@ -247,7 +278,7 @@ where
 {
     if map.contains_key(key) {
         anyhow::bail!(
-            "{FAILED} the '{key_name}' key {key} was already in the '{map_name}' map `&<{}, {}>`",
+            "the '{key_name}' key {key} was already in the '{map_name}' map `&<{}, {}>`",
             std::any::type_name::<K>(),
             std::any::type_name::<V>(),
         )
@@ -269,8 +300,50 @@ where
 {
     if !map.contains_key(key) {
         anyhow::bail!(
-            "{FAILED} the '{key_name}' key {key} was not in the '{map_name}' map `&<{}, {}>`",
+            "the '{key_name}' key {key} was not in the '{map_name}' map `&<{}, {}>`",
             std::any::type_name::<K>(),
+            std::any::type_name::<V>(),
+        )
+    }
+    Ok(())
+}
+
+/// Checks the `member` is **not** in the `set`.
+pub fn check_member_not_in_set<V>(
+    member: &V,
+    set: &HashSet<V>,
+    member_name: &str,
+    set_name: &str,
+) -> anyhow::Result<()>
+where
+    V: Hash,
+    V: std::cmp::Eq,
+    V: std::fmt::Display,
+{
+    if set.contains(member) {
+        anyhow::bail!(
+            "the '{member_name}' member was already in the '{set_name}' set `&<{}>`",
+            std::any::type_name::<V>(),
+        )
+    }
+    Ok(())
+}
+
+/// Checks the `member` is in the `set`.
+pub fn check_member_in_set<V>(
+    member: &V,
+    set: &HashSet<V>,
+    member_name: &str,
+    set_name: &str,
+) -> anyhow::Result<()>
+where
+    V: Hash,
+    V: std::cmp::Eq,
+    V: std::fmt::Display,
+{
+    if !set.contains(member) {
+        anyhow::bail!(
+            "the '{member_name}' member was not in the '{set_name}' set `&<{}>`",
             std::any::type_name::<V>(),
         )
     }
@@ -342,6 +415,26 @@ mod tests {
     #[case("a", "b")]
     fn test_check_string_contains_when_does_not_contain(#[case] s: &str, #[case] pat: &str) {
         assert!(check_string_contains(s, pat, "value").is_err());
+    }
+
+    #[rstest]
+    #[case(0u8, 0u8, "left", "right", true)]
+    #[case(1u8, 1u8, "left", "right", true)]
+    #[case(0u8, 1u8, "left", "right", false)]
+    #[case(1u8, 0u8, "left", "right", false)]
+    #[case(10i32, 10i32, "left", "right", true)]
+    #[case(10i32, 20i32, "left", "right", false)]
+    #[case("hello", "hello", "left", "right", true)]
+    #[case("hello", "world", "left", "right", false)]
+    fn test_check_equal<T: PartialEq + Debug>(
+        #[case] lhs: T,
+        #[case] rhs: T,
+        #[case] lhs_param: &str,
+        #[case] rhs_param: &str,
+        #[case] expected: bool,
+    ) {
+        let result = check_equal(lhs, rhs, lhs_param, rhs_param).is_ok();
+        assert_eq!(result, expected);
     }
 
     #[rstest]
@@ -601,6 +694,36 @@ mod tests {
         #[case] expected: bool,
     ) {
         let result = check_key_in_map(&key, map, key_name, map_name).is_ok();
+        assert_eq!(result, expected);
+    }
+
+    #[rstest]
+    #[case(&HashSet::<u32>::new(), 5, "member", "set", true)] // Empty set
+    #[case(&HashSet::from([1, 2]), 1, "member", "set", false)] // Member exists
+    #[case(&HashSet::from([1, 2]), 5, "member", "set", true)] // Member doesn't exist
+    fn test_check_member_not_in_set(
+        #[case] set: &HashSet<u32>,
+        #[case] member: u32,
+        #[case] member_name: &str,
+        #[case] set_name: &str,
+        #[case] expected: bool,
+    ) {
+        let result = check_member_not_in_set(&member, set, member_name, set_name).is_ok();
+        assert_eq!(result, expected);
+    }
+
+    #[rstest]
+    #[case(&HashSet::<u32>::new(), 5, "member", "set", false)] // Empty set
+    #[case(&HashSet::from([1, 2]), 1, "member", "set", true)] // Member exists
+    #[case(&HashSet::from([1, 2]), 5, "member", "set", false)] // Member doesn't exist
+    fn test_check_member_in_set(
+        #[case] set: &HashSet<u32>,
+        #[case] member: u32,
+        #[case] member_name: &str,
+        #[case] set_name: &str,
+        #[case] expected: bool,
+    ) {
+        let result = check_member_in_set(&member, set, member_name, set_name).is_ok();
         assert_eq!(result, expected);
     }
 }

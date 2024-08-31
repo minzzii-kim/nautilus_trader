@@ -56,6 +56,9 @@ config_node = TradingNodeConfig(
     exec_engine=LiveExecEngineConfig(
         reconciliation=False,  # Not applicable
         inflight_check_interval_ms=0,  # Not applicable
+        # snapshot_orders=True,
+        # snapshot_positions=True,
+        # snapshot_positions_interval_secs=5.0,
     ),
     cache=CacheConfig(
         database=DatabaseConfig(),
@@ -74,9 +77,6 @@ config_node = TradingNodeConfig(
     #     autotrim_mins=30,
     # ),
     # heartbeat_interval=1.0,
-    # snapshot_orders=True,
-    # snapshot_positions=True,
-    # snapshot_positions_interval=5.0,
     data_clients={
         DATABENTO: DatabentoDataClientConfig(
             api_key=None,  # 'DATABENTO_API_KEY' env var
@@ -154,8 +154,18 @@ class DataSubscriber(Strategy):
 
             self.subscribe_quote_ticks(instrument_id, client_id=DATABENTO_CLIENT_ID)
             self.subscribe_trade_ticks(instrument_id, client_id=DATABENTO_CLIENT_ID)
+            self.subscribe_instrument_status(instrument_id, client_id=DATABENTO_CLIENT_ID)
             # self.request_quote_ticks(instrument_id)
             # self.request_trade_ticks(instrument_id)
+
+            # from nautilus_trader.model.data import DataType
+            # from nautilus_trader.model.data import InstrumentStatus
+            #
+            # status_data_type = DataType(
+            #     type=InstrumentStatus,
+            #     metadata={"instrument_id": instrument_id},
+            # )
+            # self.request_data(status_data_type, client_id=DATABENTO_CLIENT_ID)
 
             # from nautilus_trader.model.data import BarType
             # self.request_bars(BarType.from_str(f"{instrument_id}-1-MINUTE-LAST-EXTERNAL"))

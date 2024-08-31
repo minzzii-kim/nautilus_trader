@@ -57,6 +57,9 @@ config_node = TradingNodeConfig(
     exec_engine=LiveExecEngineConfig(
         reconciliation=True,
         reconciliation_lookback_mins=1440,
+        # snapshot_orders=True,
+        # snapshot_positions=True,
+        # snapshot_positions_interval_secs=5.0,
     ),
     cache=CacheConfig(
         # database=DatabaseConfig(),
@@ -67,15 +70,15 @@ config_node = TradingNodeConfig(
     #     database=DatabaseConfig(),
     #     timestamps_as_iso8601=True,
     #     buffer_interval_ms=100,
-    #     streams_prefix="quoters",
+    #     streams_prefix="bybit",
+    #     use_trader_prefix=False,
+    #     use_trader_id=False,
     #     use_instance_id=False,
+    #     stream_per_topic=False,
     #     # types_filter=[QuoteTick],
     #     autotrim_mins=30,
     # ),
     # heartbeat_interval=1.0,
-    # snapshot_orders=True,
-    # snapshot_positions=True,
-    # snapshot_positions_interval=5.0,
     data_clients={
         "BYBIT": BybitDataClientConfig(
             api_key=None,  # 'BYBIT_API_KEY' env var

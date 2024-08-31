@@ -17,11 +17,12 @@ use std::collections::HashMap;
 
 use nautilus_model::{
     accounts::{any::AccountAny, base::Account},
+    data::{bar::Bar, quote::QuoteTick, trade::TradeTick},
     events::{
         account::state::AccountState,
         order::{OrderEvent, OrderEventAny},
     },
-    identifiers::{AccountId, ClientOrderId, InstrumentId},
+    identifiers::{AccountId, ClientId, ClientOrderId, InstrumentId},
     instruments::{any::InstrumentAny, Instrument},
     orders::{any::OrderAny, base::Order},
     types::{
@@ -32,8 +33,16 @@ use nautilus_model::{
 use sqlx::{PgPool, Row};
 
 use crate::sql::models::{
-    accounts::AccountEventModel, general::GeneralRow, instruments::InstrumentAnyModel,
-    orders::OrderEventAnyModel, types::CurrencyModel,
+    accounts::AccountEventModel,
+    data::{BarModel, QuoteTickModel, TradeTickModel},
+    enums::{
+        AggregationSourceModel, AggressorSideModel, AssetClassModel, BarAggregationModel,
+        CurrencyTypeModel, PriceTypeModel, TrailingOffsetTypeModel,
+    },
+    general::{GeneralRow, OrderEventOrderClientIdCombination},
+    instruments::InstrumentAnyModel,
+    orders::OrderEventAnyModel,
+    types::CurrencyModel,
 };
 
 pub struct DatabaseQueries;
@@ -65,13 +74,13 @@ impl DatabaseQueries {
 
     pub async fn add_currency(pool: &PgPool, currency: Currency) -> anyhow::Result<()> {
         sqlx::query(
-            "INSERT INTO currency (id, precision, iso4217, name, currency_type) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO NOTHING"
+            "INSERT INTO currency (id, precision, iso4217, name, currency_type) VALUES ($1, $2, $3, $4, $5::currency_type) ON CONFLICT (id) DO NOTHING"
         )
             .bind(currency.code.as_str())
             .bind(currency.precision as i32)
             .bind(currency.iso4217 as i32)
             .bind(currency.name.as_str())
-            .bind(currency.currency_type.to_string())
+            .bind(CurrencyTypeModel(currency.currency_type))
             .execute(pool)
             .await
             .map(|_| ())
@@ -114,7 +123,7 @@ impl DatabaseQueries {
                 multiplier, option_kind, is_inverse, strike_price, activation_ns, expiration_ns, price_precision, size_precision,
                 price_increment, size_increment, maker_fee, taker_fee, margin_init, margin_maint, lot_size, max_quantity, min_quantity, max_notional,
                 min_notional, max_price, min_price, ts_init, ts_event, created_at, updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::asset_class, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             ON CONFLICT (id)
             DO UPDATE
             SET
@@ -131,7 +140,7 @@ impl DatabaseQueries {
             .bind(instrument.quote_currency().code.as_str())
             .bind(instrument.settlement_currency().code.as_str())
             .bind(instrument.isin().map(|x| x.to_string()))
-            .bind(instrument.asset_class().to_string())
+            .bind(AssetClassModel(instrument.asset_class()))
             .bind(instrument.exchange().map(|x| x.to_string()))
             .bind(instrument.multiplier().to_string())
             .bind(instrument.option_kind().map(|x| x.to_string()))
@@ -189,6 +198,7 @@ impl DatabaseQueries {
         _kind: &str,
         updated: bool,
         order: Box<dyn Order>,
+        client_id: Option<ClientId>,
     ) -> anyhow::Result<()> {
         if updated {
             let exists =
@@ -204,55 +214,55 @@ impl DatabaseQueries {
         }
         match order.last_event().clone() {
             OrderEventAny::Accepted(event) => {
-                DatabaseQueries::add_order_event(pool, Box::new(event)).await
+                DatabaseQueries::add_order_event(pool, Box::new(event), client_id).await
             }
             OrderEventAny::CancelRejected(event) => {
-                DatabaseQueries::add_order_event(pool, Box::new(event)).await
+                DatabaseQueries::add_order_event(pool, Box::new(event), client_id).await
             }
             OrderEventAny::Canceled(event) => {
-                DatabaseQueries::add_order_event(pool, Box::new(event)).await
+                DatabaseQueries::add_order_event(pool, Box::new(event), client_id).await
             }
             OrderEventAny::Denied(event) => {
-                DatabaseQueries::add_order_event(pool, Box::new(event)).await
+                DatabaseQueries::add_order_event(pool, Box::new(event), client_id).await
             }
             OrderEventAny::Emulated(event) => {
-                DatabaseQueries::add_order_event(pool, Box::new(event)).await
+                DatabaseQueries::add_order_event(pool, Box::new(event), client_id).await
             }
             OrderEventAny::Expired(event) => {
-                DatabaseQueries::add_order_event(pool, Box::new(event)).await
+                DatabaseQueries::add_order_event(pool, Box::new(event), client_id).await
             }
             OrderEventAny::Filled(event) => {
-                DatabaseQueries::add_order_event(pool, Box::new(event)).await
+                DatabaseQueries::add_order_event(pool, Box::new(event), client_id).await
             }
             OrderEventAny::Initialized(event) => {
-                DatabaseQueries::add_order_event(pool, Box::new(event)).await
+                DatabaseQueries::add_order_event(pool, Box::new(event), client_id).await
             }
             OrderEventAny::ModifyRejected(event) => {
-                DatabaseQueries::add_order_event(pool, Box::new(event)).await
+                DatabaseQueries::add_order_event(pool, Box::new(event), client_id).await
             }
             OrderEventAny::PendingCancel(event) => {
-                DatabaseQueries::add_order_event(pool, Box::new(event)).await
+                DatabaseQueries::add_order_event(pool, Box::new(event), client_id).await
             }
             OrderEventAny::PendingUpdate(event) => {
-                DatabaseQueries::add_order_event(pool, Box::new(event)).await
+                DatabaseQueries::add_order_event(pool, Box::new(event), client_id).await
             }
             OrderEventAny::Rejected(event) => {
-                DatabaseQueries::add_order_event(pool, Box::new(event)).await
+                DatabaseQueries::add_order_event(pool, Box::new(event), client_id).await
             }
             OrderEventAny::Released(event) => {
-                DatabaseQueries::add_order_event(pool, Box::new(event)).await
+                DatabaseQueries::add_order_event(pool, Box::new(event), client_id).await
             }
             OrderEventAny::Submitted(event) => {
-                DatabaseQueries::add_order_event(pool, Box::new(event)).await
+                DatabaseQueries::add_order_event(pool, Box::new(event), client_id).await
             }
             OrderEventAny::Updated(event) => {
-                DatabaseQueries::add_order_event(pool, Box::new(event)).await
+                DatabaseQueries::add_order_event(pool, Box::new(event), client_id).await
             }
             OrderEventAny::Triggered(event) => {
-                DatabaseQueries::add_order_event(pool, Box::new(event)).await
+                DatabaseQueries::add_order_event(pool, Box::new(event), client_id).await
             }
             OrderEventAny::PartiallyFilled(event) => {
-                DatabaseQueries::add_order_event(pool, Box::new(event)).await
+                DatabaseQueries::add_order_event(pool, Box::new(event), client_id).await
             }
         }
     }
@@ -290,9 +300,12 @@ impl DatabaseQueries {
     pub async fn add_order_event(
         pool: &PgPool,
         order_event: Box<dyn OrderEvent>,
+        client_id: Option<ClientId>,
     ) -> anyhow::Result<()> {
         let mut transaction = pool.begin().await?;
 
+        // Insert trader if it does not exist
+        // TODO remove this when node and trader initialization is implemented
         sqlx::query(
             r#"
             INSERT INTO "trader" (id) VALUES ($1) ON CONFLICT (id) DO NOTHING
@@ -304,28 +317,42 @@ impl DatabaseQueries {
         .map(|_| ())
         .map_err(|err| anyhow::anyhow!("Failed to insert into trader table: {err}"))?;
 
+        // Insert client if it does not exist
+        // TODO remove this when client initialization is implemented
+        if let Some(client_id) = client_id {
+            sqlx::query(
+                r#"
+                INSERT INTO "client" (id) VALUES ($1) ON CONFLICT (id) DO NOTHING
+            "#,
+            )
+            .bind(client_id.to_string())
+            .execute(&mut *transaction)
+            .await
+            .map(|_| ())
+            .map_err(|err| anyhow::anyhow!("Failed to insert into client table: {err}"))?;
+        }
+
         sqlx::query(r#"
             INSERT INTO "order_event" (
-                id, kind, order_id, order_type, order_side, trader_id, strategy_id, instrument_id, trade_id, currency, quantity, time_in_force, liquidity_side,
+                id, kind, order_id, order_type, order_side, trader_id, client_id, strategy_id, instrument_id, trade_id, currency, quantity, time_in_force, liquidity_side,
                 post_only, reduce_only, quote_quantity, reconciliation, price, last_px, last_qty, trigger_price, trigger_type, limit_offset, trailing_offset,
                 trailing_offset_type, expire_time, display_qty, emulation_trigger, trigger_instrument_id, contingency_type,
                 order_list_id, linked_order_ids, parent_order_id,
                 exec_algorithm_id, exec_spawn_id, venue_order_id, account_id, position_id, commission, ts_event, ts_init, created_at, updated_at
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-                $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                $21, $22, $23, $24, $25::trailing_offset_type, $26, $27, $28, $29, $30, $31, $32, $33, $34,
+                $35, $36, $37, $38, $39, $40, $41, $42,  CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             )
             ON CONFLICT (id)
             DO UPDATE
             SET
-                kind = $2, order_id = $3, order_type = $4, order_side=$5, trader_id = $6, strategy_id = $7, instrument_id = $8, trade_id = $9, currency = $10,
-                quantity = $11, time_in_force = $12, liquidity_side = $13,
-                post_only = $14, reduce_only = $15, quote_quantity = $16, reconciliation = $17, price = $18, last_px = $19,
-                last_qty = $20, trigger_price = $21, trigger_type = $22, limit_offset = $23, trailing_offset = $24,
-                trailing_offset_type = $25, expire_time = $26, display_qty = $27, emulation_trigger = $28, trigger_instrument_id = $29,
-                contingency_type = $30, order_list_id = $31, linked_order_ids = $32,
-                parent_order_id = $33, exec_algorithm_id = $34, exec_spawn_id = $35, venue_order_id = $36, account_id = $37, position_id = $38, commission = $39,
-                ts_event = $40, ts_init = $41, updated_at = CURRENT_TIMESTAMP
+                kind = $2, order_id = $3, order_type = $4, order_side=$5, trader_id = $6, client_id = $7, strategy_id = $8, instrument_id = $9, trade_id = $10, currency = $11,
+                quantity = $12, time_in_force = $13, liquidity_side = $14, post_only = $15, reduce_only = $16, quote_quantity = $17, reconciliation = $18, price = $19, last_px = $20,
+                last_qty = $21, trigger_price = $22, trigger_type = $23, limit_offset = $24, trailing_offset = $25, trailing_offset_type = $26, expire_time = $27, display_qty = $28,
+                emulation_trigger = $29, trigger_instrument_id = $30, contingency_type = $31, order_list_id = $32, linked_order_ids = $33, parent_order_id = $34, exec_algorithm_id = $35,
+                exec_spawn_id = $36, venue_order_id = $37, account_id = $38, position_id = $39, commission = $40, ts_event = $41, ts_init = $42, updated_at = CURRENT_TIMESTAMP
+
         "#)
             .bind(order_event.id().to_string())
             .bind(order_event.kind())
@@ -333,6 +360,7 @@ impl DatabaseQueries {
             .bind(order_event.order_type().map(|x| x.to_string()))
             .bind(order_event.order_side().map(|x| x.to_string()))
             .bind(order_event.trader_id().to_string())
+            .bind(client_id.map(|x| x.to_string()))
             .bind(order_event.strategy_id().to_string())
             .bind(order_event.instrument_id().to_string())
             .bind(order_event.trade_id().map(|x| x.to_string()))
@@ -351,7 +379,7 @@ impl DatabaseQueries {
             .bind(order_event.trigger_type().map(|x| x.to_string()))
             .bind(order_event.limit_offset().map(|x| x.to_string()))
             .bind(order_event.trailing_offset().map(|x| x.to_string()))
-            .bind(order_event.trailing_offset_type().map(|x| format!("{:?}", x)))
+            .bind(order_event.trailing_offset_type().map(TrailingOffsetTypeModel))
             .bind(order_event.expire_time().map(|x| x.to_string()))
             .bind(order_event.display_qty().map(|x| x.to_string()))
             .bind(order_event.emulation_trigger().map(|x| x.to_string()))
@@ -555,5 +583,153 @@ impl DatabaseQueries {
             }
         }
         Ok(accounts)
+    }
+
+    pub async fn add_trade(pool: &PgPool, trade: &TradeTick) -> anyhow::Result<()> {
+        sqlx::query(r#"
+            INSERT INTO "trade" (
+                instrument_id, price, quantity, aggressor_side, venue_trade_id,
+                ts_event, ts_init, created_at, updated_at
+            ) VALUES (
+                $1, $2, $3, $4::aggressor_side, $5, $6, $7, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
+            ON CONFLICT (id)
+            DO UPDATE
+            SET
+                instrument_id = $1, price = $2, quantity = $3, aggressor_side = $4, venue_trade_id = $5,
+                ts_event = $6, ts_init = $7, updated_at = CURRENT_TIMESTAMP
+        "#)
+            .bind(trade.instrument_id.to_string())
+            .bind(trade.price.to_string())
+            .bind(trade.size.to_string())
+            .bind(AggressorSideModel(trade.aggressor_side))
+            .bind(trade.trade_id.to_string())
+            .bind(trade.ts_event.to_string())
+            .bind(trade.ts_init.to_string())
+            .execute(pool)
+            .await
+            .map(|_| ())
+            .map_err(|err| anyhow::anyhow!("Failed to insert into trade table: {err}"))
+    }
+
+    pub async fn load_trades(
+        pool: &PgPool,
+        instrument_id: &InstrumentId,
+    ) -> anyhow::Result<Vec<TradeTick>> {
+        sqlx::query_as::<_, TradeTickModel>(
+            r#"SELECT * FROM "trade" WHERE instrument_id = $1 ORDER BY ts_event ASC"#,
+        )
+        .bind(instrument_id.to_string())
+        .fetch_all(pool)
+        .await
+        .map(|rows| rows.into_iter().map(|row| row.0).collect())
+        .map_err(|err| anyhow::anyhow!("Failed to load trades: {err}"))
+    }
+
+    pub async fn add_quote(pool: &PgPool, quote: &QuoteTick) -> anyhow::Result<()> {
+        sqlx::query(r#"
+            INSERT INTO "quote" (
+                instrument_id, bid_price, ask_price, bid_size, ask_size, ts_event, ts_init, created_at, updated_at
+            ) VALUES (
+                $1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
+            ON CONFLICT (id)
+            DO UPDATE
+            SET
+                instrument_id = $1, bid_price = $2, ask_price = $3, bid_size = $4, ask_size = $5,
+                ts_event = $6, ts_init = $7, updated_at = CURRENT_TIMESTAMP
+        "#)
+            .bind(quote.instrument_id.to_string())
+            .bind(quote.bid_price.to_string())
+            .bind(quote.ask_price.to_string())
+            .bind(quote.bid_size.to_string())
+            .bind(quote.ask_size.to_string())
+            .bind(quote.ts_event.to_string())
+            .bind(quote.ts_init.to_string())
+            .execute(pool)
+            .await
+            .map(|_| ())
+            .map_err(|err| anyhow::anyhow!("Failed to insert into quote table: {err}"))
+    }
+
+    pub async fn load_quotes(
+        pool: &PgPool,
+        instrument_id: &InstrumentId,
+    ) -> anyhow::Result<Vec<QuoteTick>> {
+        sqlx::query_as::<_, QuoteTickModel>(
+            r#"SELECT * FROM "quote" WHERE instrument_id = $1 ORDER BY ts_event ASC"#,
+        )
+        .bind(instrument_id.to_string())
+        .fetch_all(pool)
+        .await
+        .map(|rows| rows.into_iter().map(|row| row.0).collect())
+        .map_err(|err| anyhow::anyhow!("Failed to load quotes: {err}"))
+    }
+
+    pub async fn add_bar(pool: &PgPool, bar: &Bar) -> anyhow::Result<()> {
+        println!("Adding bar: {:?}", bar);
+        sqlx::query(r#"
+            INSERT INTO "bar" (
+                instrument_id, step, bar_aggregation, price_type, aggregation_source, open, high, low, close, volume, ts_event, ts_init, created_at, updated_at
+            ) VALUES (
+                $1, $2, $3::bar_aggregation, $4::price_type, $5::aggregation_source, $6, $7, $8, $9, $10, $11, $12, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+            )
+            ON CONFLICT (id)
+            DO UPDATE
+            SET
+                instrument_id = $1, step = $2, bar_aggregation = $3::bar_aggregation, price_type = $4::price_type, aggregation_source = $5::aggregation_source,
+                open = $6, high = $7, low = $8, close = $9, volume = $10, ts_event = $11, ts_init = $12, updated_at = CURRENT_TIMESTAMP
+        "#)
+            .bind(bar.bar_type.instrument_id.to_string())
+            .bind(bar.bar_type.spec.step as i32)
+            .bind(BarAggregationModel(bar.bar_type.spec.aggregation))
+            .bind(PriceTypeModel(bar.bar_type.spec.price_type))
+            .bind(AggregationSourceModel(bar.bar_type.aggregation_source))
+            .bind(bar.open.to_string())
+            .bind(bar.high.to_string())
+            .bind(bar.low.to_string())
+            .bind(bar.close.to_string())
+            .bind(bar.volume.to_string())
+            .bind(bar.ts_event.to_string())
+            .bind(bar.ts_init.to_string())
+            .execute(pool)
+            .await
+            .map(|_| ())
+            .map_err(|err| anyhow::anyhow!("Failed to insert into bar table: {err}"))
+    }
+
+    pub async fn load_bars(
+        pool: &PgPool,
+        instrument_id: &InstrumentId,
+    ) -> anyhow::Result<Vec<Bar>> {
+        sqlx::query_as::<_, BarModel>(
+            r#"SELECT * FROM "bar" WHERE instrument_id = $1 ORDER BY ts_event ASC"#,
+        )
+        .bind(instrument_id.to_string())
+        .fetch_all(pool)
+        .await
+        .map(|rows| rows.into_iter().map(|row| row.0).collect())
+        .map_err(|err| anyhow::anyhow!("Failed to load bars: {err}"))
+    }
+
+    pub async fn load_distinct_order_event_client_ids(
+        pool: &PgPool,
+    ) -> anyhow::Result<HashMap<ClientOrderId, ClientId>> {
+        let mut map: HashMap<ClientOrderId, ClientId> = HashMap::new();
+        let result = sqlx::query_as::<_, OrderEventOrderClientIdCombination>(
+            r#"
+            SELECT DISTINCT
+                order_id AS "order_id",
+                client_id AS "client_id"
+            FROM "order_event"
+        "#,
+        )
+        .fetch_all(pool)
+        .await
+        .map_err(|err| anyhow::anyhow!("Failed to load account ids: {err}"))?;
+        for id in result {
+            map.insert(id.order_id, id.client_id);
+        }
+        Ok(map)
     }
 }

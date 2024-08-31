@@ -22,6 +22,7 @@ from nautilus_trader.cache.base import CacheFacade
 from nautilus_trader.common.component import Logger
 from nautilus_trader.common.enums import LogColor
 from nautilus_trader.config import TradingNodeConfig
+from nautilus_trader.core import nautilus_pyo3
 from nautilus_trader.core.correctness import PyCondition
 from nautilus_trader.core.uuid import UUID4
 from nautilus_trader.live.factories import LiveDataClientFactory
@@ -89,8 +90,8 @@ class TradingNode:
         self.kernel.logger.info(f"{self._has_msgbus_backing=}", LogColor.BLUE)
 
         # Async tasks
+        self._task_streaming: asyncio.Future | None = None
         self._task_heartbeats: asyncio.Task | None = None
-        self._task_position_snapshots: asyncio.Task | None = None
 
     @property
     def trader_id(self) -> TraderId:
@@ -275,6 +276,23 @@ class TradingNode:
         except RuntimeError as e:
             self.kernel.logger.exception("Error on run", e)
 
+    def publish_bus_message(self, bus_msg: nautilus_pyo3.BusMessage) -> None:
+        """
+        Publish bus message on the internal message bus.
+
+        Note the message will not be published externally.
+
+        Parameters
+        ----------
+        bus_msg : nautilus_pyo3.BusMessage
+            The bus message to publish.
+
+        """
+        msg = self.kernel.msgbus_serializer.deserialize(bus_msg.payload)
+        if not self.kernel.msgbus.is_streaming_type(type(msg)):
+            return  # Type has not been registered for message streaming
+        self.kernel.msgbus.publish(bus_msg.topic, msg, external_pub=False)
+
     async def run_async(self) -> None:
         """
         Start and run the trading node asynchronously.
@@ -306,13 +324,16 @@ class TradingNode:
                 self.kernel.exec_engine.get_evt_queue_task(),
             ]
 
+            if self._config.message_bus and self._config.message_bus.external_streams:
+                streams = self._config.message_bus.external_streams
+                self.kernel.logger.info("Starting task: external message streaming", LogColor.BLUE)
+                self.kernel.logger.info(f"Listening to streams: {streams}", LogColor.BLUE)
+                self._task_streaming = asyncio.ensure_future(
+                    self.kernel.msgbus_database.stream(self.publish_bus_message),
+                )
             if self._config.heartbeat_interval:
                 self._task_heartbeats = asyncio.create_task(
                     self.maintain_heartbeat(self._config.heartbeat_interval),
-                )
-            if self._config.snapshot_positions_interval:
-                self._task_position_snapshots = asyncio.create_task(
-                    self.snapshot_open_positions(self._config.snapshot_positions_interval),
                 )
 
             await asyncio.gather(*tasks)
@@ -347,46 +368,6 @@ class TradingNode:
             # Catch-all exceptions for development purposes (unexpected errors)
             self.kernel.logger.error(str(e))
 
-    async def snapshot_open_positions(self, interval: float) -> None:
-        """
-        Snapshot the state of all open positions at the configured interval.
-
-        Parameters
-        ----------
-        interval : float
-            The interval (seconds) between open position state snapshotting.
-
-        """
-        self.kernel.logger.info(
-            f"Starting task: snapshot open positions at {interval}s intervals",
-            LogColor.BLUE,
-        )
-        try:
-            while True:
-                await asyncio.sleep(interval)
-                open_positions = self.kernel.cache.positions_open()
-                for position in open_positions:
-                    if self._has_cache_backing:
-                        self.cache.snapshot_position_state(
-                            position=position,
-                            ts_snapshot=self.kernel.clock.timestamp_ns(),
-                        )
-                    if self._has_msgbus_backing:
-                        #  TODO: Consolidate this with the cache
-                        position_state = position.to_dict()
-                        unrealized_pnl = self.kernel.cache.calculate_unrealized_pnl(position)
-                        if unrealized_pnl is not None:
-                            position_state["unrealized_pnl"] = str(unrealized_pnl)
-                        self.kernel.msgbus.publish(
-                            topic=f"snapshots:positions:{position.id}",
-                            msg=self.kernel.msgbus.serializer.serialize(position_state),
-                        )
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            # Catch-all exceptions for development purposes (unexpected errors)
-            self.kernel.logger.error(str(e))
-
     def stop(self) -> None:
         """
         Stop the trading node gracefully.
@@ -413,15 +394,15 @@ class TradingNode:
         If save strategy is configured, then strategy states will be saved.
 
         """
+        if self._task_streaming:
+            self.kernel.logger.info("Canceling task 'streaming'")
+            self._task_streaming.cancel()
+            self._task_streaming = None
+
         if self._task_heartbeats:
-            self.kernel.logger.info("Cancelling `task_heartbeats` task")
+            self.kernel.logger.info("Canceling task 'heartbeats'")
             self._task_heartbeats.cancel()
             self._task_heartbeats = None
-
-        if self._task_position_snapshots:
-            self.kernel.logger.info("Cancelling `task_position_snapshots` task")
-            self._task_position_snapshots.cancel()
-            self._task_position_snapshots = None
 
         await self.kernel.stop_async()
 
