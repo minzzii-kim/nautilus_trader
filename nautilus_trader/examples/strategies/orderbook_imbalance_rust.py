@@ -175,7 +175,7 @@ class OrderBookImbalance(Strategy):
         larger = max(bid_size.as_double(), ask_size.as_double())
         ratio = self.imbalance.value
         self.log.info(
-            f"Book: {self.book.best_bid_price()} @ {self.book.best_ask_price()} ({ratio=:0.2f})",
+            f"[Rust] Book: {self.book.best_bid_price()} @ {self.book.best_ask_price()} ({ratio=:0.2f})",
         )
         seconds_since_last_trigger = (
             self.clock.utc_now() - self._last_trigger_timestamp

@@ -36,13 +36,18 @@ from nautilus_trader.model.objects import Money
 from nautilus_trader.persistence.loaders import BinanceOrderBookDeltaDataLoader
 from nautilus_trader.persistence.wranglers import OrderBookDeltaDataWrangler
 from nautilus_trader.test_kit.providers import TestInstrumentProvider
-
+from nautilus_trader.config import LoggingConfig
 
 if __name__ == "__main__":
     # Configure backtest engine
     config = BacktestEngineConfig(
-        trader_id=TraderId("BACKTESTER-001"),
+        trader_id=TraderId("BACKTESTER-002"),
         # logging=LoggingConfig(log_level="DEBUG"),
+        logging=LoggingConfig(
+            log_level="INFO",
+            log_colors=True,
+            use_pyo3=False,
+        ),
     )
 
     # Build the backtest engine
@@ -64,18 +69,18 @@ if __name__ == "__main__":
     )
 
     # Add instruments
-    BTCUSDT_BINANCE = TestInstrumentProvider.btcusdt_binance()
+    BTCUSDT_BINANCE = TestInstrumentProvider.btcusdt_binance() # CurrencyPair (cython)
     engine.add_instrument(BTCUSDT_BINANCE)
 
     # Add data
-    data_dir = Path("~/Downloads").expanduser() / "Data" / "Binance"
-
-    path_snap = data_dir / "BTCUSDT_T_DEPTH_2022-11-01_depth_snap.csv"
+    #data_dir = Path("~/Downloads").expanduser() / "Data" / "Binance"
+    data_dir = Path("/Users/minzzii/Documents/highfrequencytrading/nautilus_trader/tests/test_data/binance")
+    path_snap = data_dir / "btcusdt-depth-snap.csv" # "BTCUSDT_T_DEPTH_2022-11-01_depth_snap.csv"
     print(f"Loading {path_snap} ...")
     df_snap = BinanceOrderBookDeltaDataLoader.load(path_snap)
     print(str(df_snap))
 
-    path_update = data_dir / "BTCUSDT_T_DEPTH_2022-11-01_depth_update.csv"
+    path_update = data_dir / "btcusdt-depth-update.csv" #"BTCUSDT_T_DEPTH_2022-11-01_depth_update.csv"
     print(f"Loading {path_update} ...")
     nrows = 1_000_000
     df_update = BinanceOrderBookDeltaDataLoader.load(path_update, nrows=nrows)
@@ -88,18 +93,21 @@ if __name__ == "__main__":
     engine.add_data(deltas)
 
     # Configure your strategy
+    print("OrderBookImbalanceConfig ...")
     config = OrderBookImbalanceConfig(
-        instrument_id=BTCUSDT_BINANCE.id,
+        instrument_id=BTCUSDT_BINANCE.id, # InstrumentId
         max_trade_size=Decimal("1.000"),
         min_seconds_between_triggers=1.0,
         book_type=book_type_to_str(book_type),
+        oms_type="NETTING"
     )
 
     # Instantiate and add your strategy
+    print("OrderBookImbalance START...")
     strategy = OrderBookImbalance(config=config)
     engine.add_strategy(strategy=strategy)
-
-    time.sleep(0.1)
+    print("OrderBookImbalance END...") 
+    time.sleep(0.5)
     input("Press Enter to continue...")
 
     # Run the engine (from start to end of data)

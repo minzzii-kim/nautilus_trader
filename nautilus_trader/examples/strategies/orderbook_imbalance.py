@@ -77,7 +77,7 @@ class OrderBookImbalanceConfig(StrategyConfig, frozen=True):
 
 class OrderBookImbalance(Strategy):
     """
-    A simple strategy that sends FOK limit orders when there is a bid/ask imbalance in
+    A simple strategy that sends FOK(Full or Killed) limit orders when there is a bid/ask imbalance (based on size) in
     the order book.
 
     Cancels all orders and closes all positions on stop.
@@ -90,12 +90,16 @@ class OrderBookImbalance(Strategy):
     """
 
     def __init__(self, config: OrderBookImbalanceConfig) -> None:
+        print(f"[MZ] Initializing OrderBookImbalance strategy")
+        print(f"[MZ] book_type: {self.book_type}")
+        print(f"[MZ] min_seconds_between_triggers: {self.min_seconds_between_triggers}")
+    
         assert 0 < config.trigger_imbalance_ratio < 1
         super().__init__(config)
 
         # Configuration
         self.instrument_id = config.instrument_id
-        self.max_trade_size = config.max_trade_size
+        self.max_trade_size = Decimal(config.max_trade_size)
         self.trigger_min_size = config.trigger_min_size
         self.trigger_imbalance_ratio = config.trigger_imbalance_ratio
         self.min_seconds_between_triggers = config.min_seconds_between_triggers
@@ -105,10 +109,14 @@ class OrderBookImbalance(Strategy):
             assert self.config.book_type == "L1_MBP"
         self.book_type: BookType = book_type_from_str(self.config.book_type)
 
+
+
     def on_start(self) -> None:
         """
         Actions to be performed on strategy start.
         """
+        self.log.info("========Starting OrderBookImbalance strategy================")
+
         self.instrument = self.cache.instrument(self.instrument_id)
         if self.instrument is None:
             self.log.error(f"Could not find instrument for {self.instrument_id}")
@@ -173,11 +181,23 @@ class OrderBookImbalance(Strategy):
         larger = max(bid_size, ask_size)
         ratio = smaller / larger
         self.log.info(
-            f"Book: {book.best_bid_price()} @ {book.best_ask_price()} ({ratio=:0.2f})",
+            f"[MZ] Book: {book.best_bid_price()} @ {book.best_ask_price()} ({ratio=:0.2f})",
         )
+        
+
         seconds_since_last_trigger = (
             self.clock.utc_now() - self._last_trigger_timestamp
         ).total_seconds()
+
+        self.log.info(f"[MZ] Seconds since last trigger: {seconds_since_last_trigger}")
+        
+        self.log.info(f"[MZ] smaller size: {smaller}, larger size: {larger}")
+        self.log.info(f"[MZ] ratio: {ratio}")
+        self.log.info(f"[MZ] trigger_min_size: {self.trigger_min_size}")
+        self.log.info(f"[MZ] trigger_imbalance_ratio: {self.trigger_imbalance_ratio}")
+        self.log.info(f"[MZ] min_seconds_between_triggers: {self.min_seconds_between_triggers}")
+        self.log.info(f"[MZ] bid_size: {bid_size}")
+        self.log.info(f"[MZ] ask_size: {ask_size}")
 
         if larger > self.trigger_min_size and ratio < self.trigger_imbalance_ratio:
             self.log.info(

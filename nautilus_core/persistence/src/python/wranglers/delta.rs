@@ -83,7 +83,7 @@ impl OrderBookDeltaDataWrangler {
             };
 
             let batch_deltas = OrderBookDelta::decode_batch(&self.metadata, record_batch)
-                .map_err(to_pyvalue_err)?;
+                .map_err(to_pyvalue_err)?; //[mz] if decode_batch returns error, convert it to PyResult (python compatible error type)
             deltas.extend(batch_deltas);
         }
 

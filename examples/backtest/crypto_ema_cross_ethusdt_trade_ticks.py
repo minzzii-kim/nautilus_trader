@@ -40,6 +40,7 @@ from nautilus_trader.test_kit.providers import TestInstrumentProvider
 
 if __name__ == "__main__":
     # Configure backtest engine
+    print("running backtest engine...")
     config = BacktestEngineConfig(
         trader_id=TraderId("BACKTESTER-001"),
         logging=LoggingConfig(
